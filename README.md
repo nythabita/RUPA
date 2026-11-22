@@ -34,3 +34,40 @@ RUPA 1ST DRAFT HTML PROTOTYPE.html   prototype asli (tidak diubah, sebagai arsip
 
 ## Batasan (jangan diklaim lebih)
 Ini **deteksi wajah + landmark**, bukan pengenalan identitas. Liveness check dan pencocokan template wajah ke akun **belum ada**; "Wajah Terverifikasi" di prototype masih simulasi.
+
+---
+
+# Tahap 2 — App Registrasi (One-Time Setup), folder `app/`
+
+Buka **http://localhost:8080/app/** (server yang sama, `node serve.mjs`). Mobile-first: di HP tampil layar penuh; di layar lebar tampil sebagai kolom di tengah (max-width 480px). Ukuran teks & jarak memakai `clamp()`; layar pendek otomatis dirapatkan.
+
+`?uji=1` / `?uji=hp` → mode uji tanpa kamera (foto dummy sebagai kamera landscape / portrait).
+
+## Alur (16 layar)
+Splash → Onboarding → Buat Akun → OTP → **Foto KTP** → **Cek Data KTP** → Memverifikasi KTP → KTP Terverifikasi → Izin Data Wajah → Pindai Wajah → Memindai Wajah → Mengamankan Data Wajah → Wajah Terdaftar → Pilih Sumber Pembayaran → Menautkan (sumber) → Face Pay Aktif.
+Layar tebal = tambahan (tidak ada di board desain), dibuat mengikuti gaya yang sama.
+
+| Bagian | Asli / Simulasi |
+|---|---|
+| Validasi form (nama, no HP Indonesia, email, NIK 16 digit) | asli (di browser) |
+| Kode OTP | simulasi — 6 digit apa saja diterima; ketuk kotak = isi otomatis |
+| Kamera KTP (kamera belakang) + potong sesuai bingkai | asli |
+| Pembacaan data KTP (NIK, nama, tgl lahir) | simulasi — data contoh, bisa diedit |
+| Cek Dukcapil | simulasi |
+| Kamera wajah + deteksi wajah/landmark (MediaPipe lokal) | asli — progres hanya jalan saat tepat satu wajah di tengah heksagon, menghadap lurus; mundur ke 0 kalau wajah hilang |
+| Liveness | simulasi (teks di layar ditandai "simulasi") |
+| Template, enkripsi, simpan ke backend | simulasi — tidak ada yang dikirim/disimpan |
+| Penautan GoPay/OVO/DANA/ShopeePay/bank | simulasi |
+
+Foto KTP dan frame kamera hanya ada di memori browser (blob URL), dihapus saat "Ke Beranda". CSP `connect-src 'self'` sama seperti terminal. Tombol back Android/browser mengikuti alur (layar proses tidak bisa dimundurkan).
+
+## Struktur
+```
+app/
+  index.html        semua layar (markup)
+  css/app.css       design system + layout responsif
+  js/app.js         router, form, OTP demo, kamera KTP, pindai wajah, proses simulasi
+  js/face-engine.js salinan dari terminal (+ opsi kamera belakang & penyimpanan kamera terpisah)
+  vendor/, models/  MediaPipe & model lokal (salinan, supaya app bisa di-deploy sendiri)
+  vercel.json       header cache & izin kamera
+```

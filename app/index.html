@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Privasi: tidak ada koneksi keluar selain origin sendiri; foto KTP & frame kamera tetap di perangkat. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>Rupa · Daftar Face Pay</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#5cbcb8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ikon (garis, 24×24) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h8l-1 8 9-12h-8l1-8z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+  <symbol id="i-id" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="3"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16c.5-1.4 1.6-2 3-2s2.5.6 3 2M14 10h4.5M14 14h3"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 14.5h2"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+  <symbol id="i-frame" viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <div class="blob blob-a"></div>
+  <div class="blob blob-b"></div>
+
+  <!-- 01 · Splash -->
+  <section class="screen center" data-screen="splash" tabindex="-1">
+    <button class="splash-hit" id="splashGo" aria-label="Ketuk untuk melanjutkan"></button>
+    <div class="splash">
+      <div class="rings"><i></i><i></i></div>
+      <div class="logo-tile"><img src="favicon.svg" alt=""></div>
+      <div class="brand">Rupa</div>
+      <div class="brand-sub">Bayar dengan wajah</div>
+    </div>
+    <p class="foot-note splash-tap">Ketuk untuk melanjutkan</p>
+  </section>
+
+  <!-- 02 · Onboarding -->
+  <section class="screen" data-screen="onboard">
+    <div class="body center-col">
+      <div class="hero-tile rise">
+        <span class="float-chip chip-tr"><svg class="ic"><use href="#i-lock"/></svg>Terenkripsi</span>
+        <svg class="hero-hex" viewBox="0 0 160 180" fill="none" aria-hidden="true">
+          <path d="M80 6 152 47v86l-72 41-72-41V47z" stroke="#5cbcb8" stroke-width="7" stroke-linejoin="round" fill="#eaf7f6"/>
+          <path d="M58 64h-6a6 6 0 0 0-6 6v6M102 64h6a6 6 0 0 1 6 6v6M114 104v6a6 6 0 0 1-6 6h-6M58 116h-6a6 6 0 0 1-6-6v-6" stroke="#408986" stroke-width="4" stroke-linecap="round"/>
+          <path d="M68 100s5 5 12 5 12-5 12-5" stroke="#408986" stroke-width="4" stroke-linecap="round"/>
+          <path d="M28 90h104" stroke="#126764" stroke-width="4" stroke-linecap="round" class="hero-line"/>
+        </svg>
+        <span class="float-chip chip-bl"><svg class="ic"><use href="#i-zap"/></svg>Kurang dari 1 detik</span>
+      </div>
+      <h1 class="h-xl rise" style="--i:1">Bayar Cepat Hanya dengan Wajah</h1>
+      <p class="sub rise" style="--i:2">Tanpa buka HP, tanpa scan QR. Cukup lihat kasir Rupa dan pembayaranmu selesai.</p>
+    </div>
+    <div class="foot">
+      <button class="btn" data-go="akun">Daftar Sekarang</button>
+      <p class="foot-link">Sudah punya akun? <button class="link" id="btnMasuk">Masuk</button></p>
+    </div>
+  </section>
+
+  <!-- 03 · Buat akun (Langkah 1) -->
+  <section class="screen" data-screen="akun" data-step="1">
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Buat Akun Rupa</h1>
+      <p class="sub">Isi data dirimu untuk mulai menggunakan Face Pay.</p>
+      <form id="formAkun" novalidate autocomplete="on">
+        <label class="field"><span>Nama Lengkap</span>
+          <input id="inNama" name="name" autocomplete="name" placeholder="Nama sesuai KTP" maxlength="60"></label>
+        <label class="field"><span>Nomor HP</span>
+          <input id="inHp" name="tel" type="tel" inputmode="tel" autocomplete="tel" placeholder="+62 812 3456 7890" maxlength="20"></label>
+        <p class="hint" id="hintHp"></p>
+        <label class="field"><span>Email</span>
+          <input id="inEmail" name="email" type="email" inputmode="email" autocomplete="email" placeholder="nama@email.com" maxlength="80"></label>
+        <p class="hint" id="hintEmail"></p>
+      </form>
+    </div>
+    <div class="foot">
+      <p class="fine">Dengan melanjutkan, kamu menyetujui <b>Syarat &amp; Ketentuan</b> serta <b>Kebijakan Privasi</b> Rupa.</p>
+      <button class="btn" id="btnAkun" disabled>Lanjutkan</button>
+    </div>
+  </section>
+
+  <!-- 04 · OTP (Langkah 2) -->
+  <section class="screen" data-screen="otp" data-step="2">
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Verifikasi Nomor HP</h1>
+      <p class="sub">Masukkan 6 digit kode yang kami kirim ke <span id="otpPhone" class="nowrap">+62 812 3456 7890</span>.</p>
+      <div class="otp" id="otpBoxes" role="group" aria-label="Kode OTP 6 digit">
+        <input id="inOtp" class="otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Kode OTP">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <p class="hint center muted">Ketuk kotak mana saja untuk isi otomatis (demo)</p>
+      <p class="resend" id="otpResend"></p>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnOtp" disabled>Verifikasi</button>
+    </div>
+  </section>
+
+  <!-- 05 · Foto KTP (baru, Langkah 2) -->
+  <section class="screen dark" data-screen="ktpfoto">
+    <div class="cam" id="ktpCam">
+      <video id="ktpVid" playsinline muted autoplay></video>
+      <img id="ktpShot" alt="Foto KTP" hidden>
+      <div class="ktp-frame" id="ktpFrame"><i></i><i></i><i></i><i></i></div>
+      <button class="back-dark" data-back aria-label="Kembali"><svg class="ic"><use href="#i-back"/></svg></button>
+      <h2 class="cam-title">Foto KTP</h2>
+      <p class="cam-status" id="ktpStatus">Menyiapkan kamera…</p>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <ul class="tips" id="ktpTips">
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-id"/></svg></span>Gunakan KTP asli, bukan fotokopi</li>
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-spark"/></svg></span>Hindari pantulan cahaya</li>
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-frame"/></svg></span>Pastikan keempat sudut KTP terlihat</li>
+      </ul>
+      <p class="err" id="ktpErr" hidden></p>
+      <button class="btn" id="btnKtpShot" disabled><svg class="ic"><use href="#i-camera"/></svg>Ambil Foto</button>
+      <div class="row2" id="ktpReview" hidden>
+        <button class="btn ghost" id="btnKtpRetake">Foto Ulang</button>
+        <button class="btn" id="btnKtpUse">Gunakan Foto</button>
+      </div>
+      <button class="link block" id="btnKtpSkip" hidden>Lanjut tanpa foto (demo)</button>
+    </div>
+  </section>
+
+  <!-- 06 · Cek data KTP (baru, Langkah 2) -->
+  <section class="screen" data-screen="ktpcek" data-step="2">
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Cek Data KTP</h1>
+      <p class="sub">Data di bawah terbaca dari foto KTP-mu. Pastikan sudah sesuai sebelum diverifikasi.</p>
+      <div class="ktp-thumb" id="ktpThumb"><span>Tanpa foto (demo)</span></div>
+      <form id="formKtp" novalidate>
+        <label class="field"><span>NIK</span>
+          <input id="inNik" inputmode="numeric" autocomplete="off" maxlength="16" placeholder="16 digit NIK"></label>
+        <p class="hint" id="hintNik"></p>
+        <label class="field"><span>Nama Lengkap (sesuai KTP)</span>
+          <input id="inNamaKtp" autocomplete="off" maxlength="60"></label>
+        <label class="field"><span>Tanggal Lahir</span>
+          <input id="inLahir" type="date" min="1920-01-01"></label>
+      </form>
+      <p class="note"><svg class="ic"><use href="#i-info"/></svg>Pembacaan KTP masih simulasi: data contoh diisi otomatis dan bisa kamu ubah.</p>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnKtpCek" disabled>Verifikasi ke Dukcapil</button>
+    </div>
+  </section>
+
+  <!-- 07 · Memverifikasi KTP (Langkah 2, proses) -->
+  <section class="screen" data-screen="ktpverif" data-step="2" data-noback>
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Memverifikasi KTP</h1>
+      <p class="sub">Kami mencocokkan NIK dan namamu dengan data Dukcapil.</p>
+      <div class="nodes">
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-user"/></svg></span>Kamu</div>
+        <i class="dash"></i>
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-home"/></svg></span>Dukcapil</div>
+      </div>
+      <ul class="card checklist">
+        <li>Data dikirim ke Dukcapil</li><li>Mencocokkan NIK &amp; nama</li><li>Menunggu hasil verifikasi</li>
+      </ul>
+    </div>
+    <div class="foot">
+      <p class="fine">Biasanya selesai dalam beberapa detik.</p>
+      <button class="btn busy" disabled>Memverifikasi…</button>
+    </div>
+  </section>
+
+  <!-- 08 · KTP terverifikasi (Langkah 2) -->
+  <section class="screen" data-screen="ktpok" data-step="2" data-noback>
+    <header class="top"></header>
+    <div class="body center-col">
+      <div class="badge-circle rise"><span><svg class="ic"><use href="#i-id"/></svg></span><b><svg class="ic"><use href="#i-check"/></svg></b></div>
+      <h1 class="h-xl teal rise" style="--i:1">KTP Terverifikasi</h1>
+      <p class="sub rise" style="--i:2">Datamu cocok dengan data Dukcapil.</p>
+      <dl class="card rows rise" style="--i:3">
+        <div><dt>Nama</dt><dd id="okNama">Kinuy</dd></div>
+        <div><dt>NIK</dt><dd id="okNik" class="mono">3201 •••• •••• 0001</dd></div>
+        <div><dt>Status</dt><dd class="teal">Cocok dengan Dukcapil</dd></div>
+      </dl>
+    </div>
+    <div class="foot">
+      <button class="btn" data-go="izin">Lanjut ke Persetujuan</button>
+    </div>
+  </section>
+
+  <!-- 09 · Izin data wajah (Langkah 3) -->
+  <section class="screen" data-screen="izin" data-step="3">
+    <header class="top"></header>
+    <div class="body center-col">
+      <div class="shield-circle"><span><svg class="ic"><use href="#i-shield"/></svg></span></div>
+      <h1 class="h-lg center">Izinkan Pemrosesan Data Wajah</h1>
+      <p class="sub center">Rupa membutuhkan persetujuanmu sebelum mendaftarkan wajah.</p>
+      <ul class="card perks">
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-lock"/></svg></span>Wajahmu disimpan sebagai template terenkripsi, bukan foto.</li>
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-scan"/></svg></span>Hanya dipakai mencocokkan wajah (1:1) saat kamu membayar di kasir.</li>
+        <li><span class="tip-ic"><svg class="ic"><use href="#i-trash"/></svg></span>Kamu bisa menghapus data wajah kapan saja dari menu Profil.</li>
+      </ul>
+      <label class="consent"><input type="checkbox" id="cbIzin"><span class="box"><svg class="ic"><use href="#i-check"/></svg></span>
+        <span>Saya telah membaca dan menyetujui pemrosesan data biometrik wajah saya.</span></label>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnIzin" disabled>Setuju &amp; Lanjutkan</button>
+      <button class="link block" id="btnNanti">Nanti saja</button>
+    </div>
+  </section>
+
+  <!-- 10–11 · Pindai / Memindai wajah (gelap, kamera depan asli) -->
+  <section class="screen dark" data-screen="scan" data-mode="pindai">
+    <div class="cam" id="faceCam">
+      <video id="faceVid" playsinline muted autoplay></video>
+      <canvas id="faceDots"></canvas>
+      <svg class="cam-overlay" id="faceOverlay" aria-hidden="true">
+        <defs><linearGradient id="hexg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#bff3f0"/><stop offset="1" stop-color="#5cbcb8"/></linearGradient></defs>
+        <path class="shade" fill-rule="evenodd"/>
+        <path class="hex-glow"/>
+        <path class="hex-line"/>
+      </svg>
+      <div class="scanline" id="faceLine"></div>
+      <h2 class="cam-title" id="scanTitle">Pindai Wajah</h2>
+      <p class="cam-status" id="faceStatus">Menyiapkan kamera…</p>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <div class="mode-pindai">
+        <ul class="tips">
+          <li><span class="tip-ic"><svg class="ic"><use href="#i-sun"/></svg></span>Pastikan cahaya cukup terang</li>
+          <li><span class="tip-ic"><svg class="ic"><use href="#i-eye"/></svg></span>Lepas masker dan kacamata hitam</li>
+          <li><span class="tip-ic"><svg class="ic"><use href="#i-scan"/></svg></span>Tatap lurus ke arah kamera</li>
+        </ul>
+        <p class="err" id="faceErr" hidden></p>
+        <button class="btn" id="btnPindai" disabled>Mulai Pindai Wajah</button>
+      </div>
+      <div class="mode-memindai">
+        <h3 class="h-sm" id="scanHead">Tetap diam, jangan bergerak</h3>
+        <div class="progress"><i id="scanBar"></i></div>
+        <ul class="checklist plain" id="scanChecks">
+          <li>Wajah terdeteksi</li><li>Uji liveness (simulasi)</li><li>Membuat template terenkripsi</li>
+        </ul>
+        <button class="btn busy" disabled>Memindai…</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · Mengamankan data wajah (Langkah 3, proses) -->
+  <section class="screen" data-screen="amankan" data-step="3" data-noback>
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Mengamankan Data Wajah</h1>
+      <p class="sub">Selfiemu diubah menjadi template, dienkripsi, lalu disimpan di RUPA Backend.</p>
+      <div class="nodes three">
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-scan"/></svg></span>Selfie</div>
+        <i class="dash"></i>
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-lock"/></svg></span>Enkripsi</div>
+        <i class="dash"></i>
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-server"/></svg></span>RUPA Backend</div>
+      </div>
+      <ul class="card checklist">
+        <li>Template wajah dibuat</li><li>Mengenkripsi data biometrik</li><li>Menyimpan ke RUPA Backend</li>
+      </ul>
+    </div>
+    <div class="foot">
+      <p class="fine">Data wajah dienkripsi sebelum dikirim.</p>
+      <button class="btn busy" disabled>Mengamankan…</button>
+    </div>
+  </section>
+
+  <!-- 13 · Wajah terdaftar (gelap) -->
+  <section class="screen dark" data-screen="terdaftar">
+    <div class="cam done-hero">
+      <h2 class="cam-title">Wajah Terdaftar</h2>
+      <div class="done-wrap">
+        <svg class="done-hex" viewBox="0 0 346.41 388" fill="none" aria-hidden="true"><path d="M153.7 5.2c12-7 27-7 39 0l134.2 77.5c12 7 19.5 19.8 19.5 33.8v155c0 13.9-7.5 26.8-19.5 33.7l-134.2 77.5c-12 7-27 7-39 0L19.5 305.2C7.4 298.3 0 285.4 0 271.5v-155c0-14 7.4-26.8 19.5-33.8z"/></svg>
+        <span class="done-disc"><svg class="ic"><use href="#i-check"/></svg></span>
+      </div>
+      <p class="cam-status">Pemindaian wajah berhasil</p>
+    </div>
+    <div class="sheet">
+      <div class="handle"></div>
+      <h3 class="h-md">Wajah Berhasil Terdaftar</h3>
+      <p class="sub">Face Pay siap dipakai di kasir Rupa.</p>
+      <div class="pills"><span><svg class="ic"><use href="#i-check"/></svg>Template terenkripsi</span><span><svg class="ic"><use href="#i-check"/></svg>Liveness (simulasi)</span></div>
+      <button class="btn" data-go="sumber">Lanjutkan</button>
+    </div>
+  </section>
+
+  <!-- 14 · Pilih sumber pembayaran (Langkah 4) -->
+  <section class="screen" data-screen="sumber" data-step="4">
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Pilih Sumber Pembayaran</h1>
+      <p class="sub">Saldo ini dipakai otomatis saat kamu membayar dengan wajah.</p>
+      <div class="opts" id="opts" role="radiogroup" aria-label="Sumber pembayaran">
+        <button class="opt sel" role="radio" aria-checked="true" data-p="GoPay" data-sub="Saldo Rp1.250.000"><b>G</b><span>GoPay<small>Saldo Rp1.250.000</small></span><i></i></button>
+        <button class="opt" role="radio" aria-checked="false" data-p="OVO"><b>O</b><span>OVO<small>Hubungkan akun</small></span><i></i></button>
+        <button class="opt" role="radio" aria-checked="false" data-p="DANA"><b>D</b><span>DANA<small>Hubungkan akun</small></span><i></i></button>
+        <button class="opt" role="radio" aria-checked="false" data-p="ShopeePay"><b>S</b><span>ShopeePay<small>Hubungkan akun</small></span><i></i></button>
+        <button class="opt" role="radio" aria-checked="false" data-p="BCA / Mandiri"><b>B</b><span>BCA / Mandiri<small>Hubungkan rekening</small></span><i></i></button>
+      </div>
+      <p class="label">Limit transaksi tanpa PIN</p>
+      <div class="chips" id="limits" role="radiogroup" aria-label="Limit tanpa PIN">
+        <button class="chip" role="radio" aria-checked="false" data-v="100000">Rp100.000</button>
+        <button class="chip" role="radio" aria-checked="false" data-v="250000">Rp250.000</button>
+        <button class="chip sel" role="radio" aria-checked="true" data-v="500000">Rp500.000</button>
+      </div>
+      <p class="hint muted">Transaksi di atas limit akan meminta PIN.</p>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnAktifkan">Aktifkan Face Pay</button>
+    </div>
+  </section>
+
+  <!-- 15 · Menautkan sumber (Langkah 4, proses) -->
+  <section class="screen" data-screen="tautkan" data-step="4" data-noback>
+    <header class="top"></header>
+    <div class="body">
+      <h1 class="h-lg">Menautkan <span data-prov>GoPay</span></h1>
+      <p class="sub">Bank / PJP memverifikasi akunmu lalu menautkannya ke Rupa.</p>
+      <div class="nodes">
+        <div class="node"><span class="node-ic"><img src="favicon.svg" alt=""></span>Rupa</div>
+        <i class="dash"></i>
+        <div class="node"><span class="node-ic"><svg class="ic"><use href="#i-wallet"/></svg></span><span data-prov>GoPay</span></div>
+      </div>
+      <ul class="card checklist">
+        <li>Permintaan dikirim ke penyedia</li><li>Memverifikasi rekening / akun</li><li>Menautkan ke akun Rupa</li>
+      </ul>
+    </div>
+    <div class="foot">
+      <p class="fine">Kami tidak menyimpan PIN atau password akunmu.</p>
+      <button class="btn busy" disabled>Menautkan…</button>
+    </div>
+  </section>
+
+  <!-- 16 · Face Pay aktif -->
+  <section class="screen" data-screen="aktif">
+    <div class="body center-col">
+      <div class="win rise">
+        <i class="dot d1"></i><i class="dot d2"></i><i class="dot d3"></i><i class="dot d4"></i><i class="dot d5"></i>
+        <span class="win-ring"></span><span class="win-ring r2"></span>
+        <span class="win-disc"><svg class="ic"><use href="#i-check"/></svg></span>
+      </div>
+      <h1 class="h-xl teal rise" style="--i:1">Face Pay Aktif!</h1>
+      <p class="sub rise" style="--i:2">Sekarang kamu bisa membayar di kasir Rupa cukup dengan wajah.</p>
+      <dl class="card rows rise" style="--i:3">
+        <div><dt>Sumber utama</dt><dd data-prov>GoPay</dd></div>
+        <div><dt>Limit tanpa PIN</dt><dd id="sumLimit">Rp500.000</dd></div>
+        <div><dt>Data wajah</dt><dd class="teal">Terdaftar</dd></div>
+      </dl>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnBeranda">Ke Beranda</button>
+    </div>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
