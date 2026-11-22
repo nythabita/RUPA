@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Privasi: browser hanya boleh membuka koneksi ke origin sendiri (connect-src 'self').
+     Frame kamera tidak bisa dikirim keluar, dan telemetri bawaan MediaPipe ikut terblokir. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>Face Pay (Rupa) · Prototype Terminal Pelanggan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#5cbcb8; --teal-d:#408986; --teal-dd:#126764; --mint:#eaf7f6; --mint-2:#d7efed;
+  --ink:#0d1414; --grey:#717171; --grey-2:#9aa5a4; --line:#e2eceb;
+  --eo:cubic-bezier(.22,1,.36,1);      /* ease-out: entrances */
+  --es:cubic-bezier(.65,0,.35,1);      /* ease-in-out: morphs */
+  --t-btn:180ms; --t-screen:440ms;
+  --font:"SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Inter",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:radial-gradient(1200px 700px at 50% 40%,#f3f7f7 0%,#dfe7e6 100%);font-family:var(--font);color:var(--ink);overflow:hidden;-webkit-font-smoothing:antialiased;user-select:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+img{display:block;-webkit-user-drag:none}
+
+/* ---------- device frame + scaling ---------- */
+.viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding-bottom:44px}
+.frame{width:1316px;height:836px;padding:18px;border-radius:34px;background:linear-gradient(160deg,#2a3231,#141a1a);box-shadow:0 40px 80px -30px rgba(10,30,30,.55),0 0 0 1px rgba(255,255,255,.06) inset;transform-origin:center;flex:none}
+.stage{position:relative;width:1280px;height:800px;overflow:hidden;overflow:clip;border-radius:18px;background:#fff;isolation:isolate}
+.abs{position:absolute}
+
+/* ---------- persistent background ---------- */
+#bgGrad{inset:0;background:linear-gradient(180deg,#fff 0%,#fff 61%,#408986 100%);transition:opacity 700ms var(--es)}
+#camBg{inset:-60px;overflow:hidden;filter:blur(9px) saturate(1.05);opacity:0;transform:scale(1.06)}
+/* feed kamera asli: dua <video> dari stream yang sama (latar blur + wajah tajam) */
+.camv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:transparent}
+.stage.mirror .camv{transform:scaleX(-1)}
+.blob{border-radius:50%;pointer-events:none;opacity:0;transition:opacity 800ms var(--es)}
+#blobA{left:-511px;top:237px;width:1101px;height:1101px;background:radial-gradient(circle,rgba(92,188,184,.95) 0%,rgba(92,188,184,.55) 28%,rgba(92,188,184,0) 62%);animation:driftA 18s ease-in-out infinite}
+#blobB{left:900px;top:-334px;width:760px;height:760px;background:radial-gradient(circle,rgba(92,188,184,.95) 0%,rgba(92,188,184,.5) 28%,rgba(92,188,184,0) 62%);animation:driftB 22s ease-in-out infinite}
+@keyframes driftA{50%{transform:translate(26px,-18px) scale(1.04)}}
+@keyframes driftB{50%{transform:translate(-22px,16px) scale(1.05)}}
+.stage[data-bg="blobs"] #bgGrad{opacity:0}
+.stage[data-bg="blobs"] .blob{opacity:1}
+#camPerson{inset:-60px;overflow:hidden;opacity:0;-webkit-mask-image:radial-gradient(ellipse 380px 450px at 700px 480px,#000 55%,rgba(0,0,0,0) 100%);mask-image:radial-gradient(ellipse 380px 450px at 700px 480px,#000 55%,rgba(0,0,0,0) 100%)}
+
+/* ---------- scanning rig ---------- */
+#rig{inset:0;pointer-events:none}
+#corners{left:374px;top:155px;width:536px;height:535px;opacity:0;transform-origin:50% 50%}
+#corners path{stroke:rgba(0,0,0,.5);transition:stroke 400ms var(--es)}
+.stage.locked #corners path{stroke:var(--teal)}
+#hexWrap{left:466.8px;top:205px;width:346.4px;height:388px;opacity:0;transform-origin:50% 50%}
+#hexWrap svg{overflow:visible}
+#hexMain{stroke-width:3;transition:stroke-width 500ms var(--es)}
+.stage.cam #hexMain{stroke-width:5}
+#hexGlow{stroke:var(--teal);stroke-width:10;filter:blur(10px);opacity:0}
+.stage.scanning #hexGlow{animation:glow 2.4s ease-in-out infinite}
+@keyframes glow{0%,100%{opacity:.18}50%{opacity:.5}}
+#hexTrace{stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-dasharray:16 84;opacity:0}
+.stage.tracing #hexTrace{opacity:1;stroke:var(--teal-dd);animation:trace 1.25s linear infinite}
+@keyframes trace{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
+#scanPos{left:432px;top:267px;width:415px;height:26px;opacity:0}
+.scan-loop{position:absolute;inset:0}
+.scan-loop::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(92,188,184,.5),rgba(92,188,184,0))}
+.scan-loop::after{content:"";position:absolute;left:0;right:0;top:0;height:3px;border-radius:2px;background:var(--teal-dd);box-shadow:0 0 12px rgba(92,188,184,.9)}
+.stage.cam .scan-loop::after{background:#bff3f0;box-shadow:0 0 14px 2px rgba(92,188,184,.95)}
+.stage.scan-idle .scan-loop{animation:sweep 2.8s var(--es) infinite alternate}
+@keyframes sweep{from{transform:translateY(0)}to{transform:translateY(309px)}}
+.dot{width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:#fff;box-shadow:0 0 0 5px rgba(92,188,184,.35),0 0 14px rgba(92,188,184,.9);opacity:0;transform:scale(0);transition:background 400ms,box-shadow 400ms}
+.stage.locked .dot{background:#e9fffd;box-shadow:0 0 0 5px rgba(92,188,184,.55),0 0 18px rgba(92,188,184,1)}
+#mesh{left:560px;top:325px;width:171px;height:235px;overflow:visible}
+#mesh path{stroke:#fff;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1 1;stroke-dashoffset:1;opacity:.95;filter:drop-shadow(0 0 2px rgba(92,188,184,.9))}
+#okIcon{left:565px;top:175px;width:150px;height:150px;opacity:0;transform:scale(.6)}
+#okIcon .disc{position:absolute;inset:0;border-radius:50%;background:linear-gradient(180deg,#5cbcb8,#126764);box-shadow:0 18px 40px -12px rgba(18,103,100,.6),inset 0 2px 6px rgba(255,255,255,.35)}
+#okIcon svg{position:absolute;inset:0}
+#okCheck{stroke:#fff;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;fill:none;stroke-dasharray:1;stroke-dashoffset:1}
+.ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--teal);opacity:0}
+
+/* ---------- screens ---------- */
+.screen{position:absolute;inset:0;opacity:0;visibility:hidden;pointer-events:none;transform:translateX(calc(28px * var(--dir,1)));transition:opacity var(--t-screen) var(--eo),transform var(--t-screen) var(--eo),visibility 0s linear var(--t-screen)}
+.screen.is-active{opacity:1;visibility:visible;pointer-events:auto;transform:none;transition:opacity var(--t-screen) var(--eo) 90ms,transform 520ms var(--eo) 90ms,visibility 0s}
+.screen.is-leaving{transform:translateX(calc(-28px * var(--dir,1)))}
+.screen.is-active .rise{animation:rise 600ms var(--eo) both;animation-delay:calc(var(--i,0) * 70ms + 150ms)}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
+.center-x{left:0;right:0;text-align:center}
+
+/* buttons */
+.btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:12px;border-radius:20px;background:linear-gradient(180deg,#66c5c1 0%,#56b5b1 100%);color:#fff;font-weight:600;letter-spacing:.1px;box-shadow:0 12px 26px -8px rgba(64,137,134,.65),inset 0 1px 0 rgba(255,255,255,.5),inset 0 0 10px rgba(255,255,255,.22);transition:transform var(--t-btn) var(--eo),box-shadow var(--t-btn) var(--eo),filter var(--t-btn)}
+.btn:hover{filter:brightness(1.04);transform:translateY(-1px)}
+.btn:active,.btn.press{transform:scale(.97);filter:brightness(.96);box-shadow:0 5px 12px -6px rgba(64,137,134,.7),inset 0 1px 0 rgba(255,255,255,.4)}
+.btn[disabled]{pointer-events:none}
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.45);transform:scale(0);animation:ripple 600ms var(--eo) forwards;pointer-events:none}
+@keyframes ripple{to{transform:scale(1);opacity:0}}
+.ghost{display:inline-flex;align-items:center;justify-content:center;border-radius:18px;border:1.5px solid #bfdedc;color:var(--teal-dd);font-weight:600;background:rgba(255,255,255,.6);transition:transform var(--t-btn) var(--eo),background var(--t-btn),border-color var(--t-btn)}
+.ghost:hover{background:#fff;border-color:var(--teal)}
+.ghost:active{transform:scale(.97)}
+
+/* chrome */
+#hdrLogo{left:612px;top:46px;width:57px;height:49px;opacity:0;z-index:20}
+#backBtn{left:40px;top:45px;width:50px;height:50px;border-radius:10px;border:1px solid #7b7b7b;display:flex;align-items:center;justify-content:center;z-index:20;opacity:0;pointer-events:none;background:rgba(255,255,255,.35);backdrop-filter:blur(6px);transition:opacity 350ms var(--eo),transform var(--t-btn) var(--eo),background var(--t-btn)}
+#backBtn.show{opacity:1;pointer-events:auto}
+#backBtn:hover{background:rgba(255,255,255,.8)}
+#backBtn:active{transform:scale(.92)}
+
+/* S1 method */
+.s1-label{top:136px;font-size:40px;font-weight:400}
+.s1-amount{top:205px;font-size:80px;font-weight:700;letter-spacing:-1px}
+.s1-line{left:339px;top:315px;width:601px;height:3px;border-radius:2px;background:var(--teal);transform-origin:center}
+.screen.is-active .s1-line{animation:lineIn 700ms var(--es) 260ms both}
+@keyframes lineIn{from{transform:scaleX(0)}}
+.s1-q{top:397px;font-size:26px}
+.pay{position:absolute;top:485px;width:177px;height:144px;transition:transform 220ms var(--eo)}
+.pay .back{position:absolute;inset:0;border-radius:20px;background:#fdc72f;opacity:0;transform:rotate(0) translate(0,0);transition:opacity 200ms var(--eo),transform 280ms var(--eo);filter:blur(.6px)}
+.pay .face{position:absolute;inset:0;border-radius:20px;border:1px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(140deg,#fdc72f,#fff 70%) border-box;box-shadow:0 8px 18px -4px rgba(0,0,0,.16),inset 0 0 22px rgba(0,0,0,.07)}
+.pay .lbl{position:absolute;left:0;right:0;text-align:center;color:var(--grey);font-weight:600;font-size:18px;line-height:21px}
+.pay:hover,.pay.sel{transform:scale(1.1)}
+.pay:hover .back,.pay.sel .back{opacity:1;transform:rotate(-9deg) translate(10px,-12px)}
+.pay:active{transform:scale(1.05)}
+.pay.sel .face{box-shadow:0 14px 28px -8px rgba(0,0,0,.2),inset 0 0 22px rgba(0,0,0,.05),0 0 0 3px rgba(92,188,184,.0)}
+#payQris{left:402px}
+#payRupa{left:701px}
+#payQris img{position:absolute;left:28px;top:30px;width:121px}
+#payRupa .logo{position:absolute;left:60px;top:23px;width:57px;height:49px}
+.badge{position:absolute;left:156px;top:-18px;width:37px;height:37px;border-radius:50%;background:#bc0000;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;transform:rotate(-14deg);box-shadow:0 4px 10px -3px rgba(188,0,0,.6)}
+.screen.is-active .badge{animation:badgeIn 520ms var(--eo) 700ms both}
+@keyframes badgeIn{from{transform:rotate(-40deg) scale(0)}}
+
+/* S2 source */
+.s2-title{top:177px;font-size:40px}
+.s2-logo{left:240px;top:271px;width:800px;height:175px}
+.s2-note{top:470px;font-size:20px;color:var(--grey)}
+.s2-note b{color:var(--teal-dd);font-weight:600}
+#btnNext{left:240px;top:560px;width:800px;height:84px;font-size:28px}
+
+/* S3/S4 scan */
+#pill{left:515px;top:716px;width:250px;height:56px;font-size:20px;border-radius:20px}
+#pill .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(18,103,100,.32)}
+#pill .txt{position:relative;display:inline-flex;align-items:center;gap:8px;transition:opacity 140ms,transform 140ms}
+#pill .txt.swap{opacity:0;transform:translateY(5px)}
+.ell::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:ell 1.2s steps(4) infinite}
+@keyframes ell{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+
+/* auth */
+.auth-title{top:402px;font-size:40px;font-weight:600}
+.auth-sub{top:458px;font-size:22px;color:var(--grey)}
+.steps{left:470px;top:520px;width:340px;display:flex;flex-direction:column;gap:16px}
+.step{display:flex;align-items:center;gap:14px;font-size:20px;color:var(--grey-2);transition:color 300ms}
+.step.on{color:var(--ink)}
+.step.done{color:var(--ink)}
+.si{width:26px;height:26px;border-radius:50%;border:2px solid #cfdcdb;flex:none;position:relative;transition:all 300ms var(--eo)}
+.step.on .si{border-color:var(--mint-2);border-top-color:var(--teal);animation:spin .8s linear infinite}
+.step.done .si{border-color:var(--teal);background:var(--teal)}
+.step.done .si::after{content:"";position:absolute;left:8px;top:4px;width:6px;height:11px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* success */
+.ok-title{top:356px;font-size:48px;font-weight:700;letter-spacing:-.5px}
+.ok-sub{top:420px;font-size:22px;color:var(--grey)}
+.ok-card{left:370px;top:478px;width:540px;padding:22px 30px;border-radius:24px;background:rgba(255,255,255,.85);border:1px solid var(--line);box-shadow:0 20px 40px -24px rgba(18,103,100,.35);backdrop-filter:blur(8px)}
+.ok-total{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:16px;border-bottom:1px dashed #d4e3e2}
+.ok-total span{font-size:18px;color:var(--grey)}
+.ok-total b{font-size:38px;font-weight:700;letter-spacing:-.5px}
+.ok-row{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:17px;color:var(--grey)}
+.ok-row .v{color:var(--ink);font-weight:600}
+.ok-row img{height:22px;width:auto}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:15px;letter-spacing:.3px}
+#btnReceipt{left:440px;top:700px;width:400px;height:64px;font-size:22px}
+.auto{left:540px;top:776px;width:200px;height:3px;border-radius:2px;background:#dbe9e8;overflow:hidden}
+.auto i{display:block;height:100%;width:100%;background:var(--teal);transform-origin:left;transform:scaleX(0)}
+.auto.run i{animation:auto 6s linear forwards}
+@keyframes auto{to{transform:scaleX(1)}}
+
+/* receipt */
+.paper-wrap{left:140px;top:128px;width:470px;height:560px;filter:drop-shadow(0 24px 30px rgba(18,103,100,.22))}
+.paper{position:absolute;inset:0;background:#fff;border-radius:20px 20px 0 0;padding:30px 34px 0;
+  -webkit-mask:radial-gradient(circle 9px at 50% 100%,transparent 98%,#000) bottom/22px 100% repeat-x, linear-gradient(#000,#000) top/100% calc(100% - 9px) no-repeat;
+  mask:radial-gradient(circle 9px at 11px 100%,transparent 98%,#000) bottom/22px 18px repeat-x, linear-gradient(#000,#000) top/100% calc(100% - 9px) no-repeat}
+.screen.is-active .paper{animation:print 1000ms var(--eo) 200ms both}
+@keyframes print{from{clip-path:inset(0 0 100% 0);transform:translateY(-24px)}to{clip-path:inset(0 0 0 0);transform:none}}
+.p-head{display:flex;justify-content:space-between;align-items:flex-start}
+.p-store b{display:block;font-size:26px;font-weight:800;letter-spacing:-.3px}
+.p-store span{font-size:15px;color:var(--grey)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--mint);color:var(--teal-dd);font-size:14px;font-weight:600}
+.chip::before{content:"";width:6px;height:10px;border:solid var(--teal-dd);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.p-total{margin-top:30px}
+.p-total span{font-size:16px;color:var(--grey)}
+.p-total b{display:block;font-size:46px;font-weight:700;letter-spacing:-.8px;margin-top:2px}
+.dash{height:0;border-top:2px dashed #dbe6e5;margin:24px -4px}
+.p-rows{display:flex;flex-direction:column;gap:17px}
+.p-row{display:flex;justify-content:space-between;gap:16px;font-size:17px;color:var(--grey)}
+.p-row .v{color:var(--ink);font-weight:600;text-align:right}
+.p-foot{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--grey);line-height:1.35}
+.p-foot svg{flex:none}
+.r-col{left:680px;top:132px;width:460px}
+.r-title{font-size:52px;font-weight:700;letter-spacing:-.8px}
+.r-sub{font-size:22px;color:var(--grey);margin-top:6px}
+.mail-card{position:relative;margin-top:30px;height:330px;border-radius:24px;background:rgba(255,255,255,.88);border:1px solid var(--line);box-shadow:0 24px 44px -28px rgba(18,103,100,.45);backdrop-filter:blur(10px)}
+.mail-pane{position:absolute;inset:0;padding:28px;transition:opacity 360ms var(--eo),transform 420ms var(--eo)}
+.mail-pane.hide{opacity:0;transform:translateY(10px);pointer-events:none}
+.m-lbl{font-size:18px;font-weight:600}
+.field{position:relative;margin-top:14px}
+.field svg{position:absolute;left:20px;top:21px}
+#email{width:100%;height:64px;border-radius:16px;border:1.5px solid #d3e2e1;background:#fff;padding:0 18px 0 56px;font:500 21px var(--font);color:var(--ink);outline:none;transition:border-color 180ms,box-shadow 180ms;user-select:text}
+#email::placeholder{color:#b3bfbe}
+#email:focus{border-color:var(--teal);box-shadow:0 0 0 5px rgba(92,188,184,.18)}
+.field.err #email{border-color:#d64545;box-shadow:0 0 0 5px rgba(214,69,69,.12)}
+.field.shake{animation:shake 380ms var(--es)}
+@keyframes shake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.helper{height:20px;margin-top:8px;font-size:14px;color:#d64545;opacity:0;transition:opacity 200ms}
+.field.err + .helper{opacity:1}
+.chips{display:flex;gap:8px;margin-top:2px}
+.dchip{padding:8px 13px;border-radius:999px;background:var(--mint);color:var(--teal-dd);font-size:15px;font-weight:500;transition:background 160ms,transform 160ms var(--eo)}
+.dchip:hover{background:var(--mint-2)}
+.dchip:active{transform:scale(.95)}
+#btnSend{width:100%;height:64px;font-size:22px;margin-top:22px}
+.spinner{width:22px;height:22px;border-radius:50%;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;animation:spin .8s linear infinite}
+.sent{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.sent svg{margin-bottom:18px}
+.sent .c{stroke:var(--teal);stroke-width:4;fill:var(--mint);stroke-dasharray:1;stroke-dashoffset:1}
+.sent .k{stroke:var(--teal-dd);stroke-width:5;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
+.sent.go .c{animation:draw 520ms var(--eo) 120ms forwards}
+.sent.go .k{animation:draw 380ms var(--eo) 560ms forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.sent h3{font-size:24px;font-weight:600}
+.sent p{font-size:18px;color:var(--grey);margin-top:6px}
+.sent .again{margin-top:18px;font-size:16px;font-weight:600;color:var(--teal-dd);padding:8px 14px;border-radius:12px}
+.sent .again:hover{background:var(--mint)}
+#btnDone{width:100%;height:60px;font-size:21px;margin-top:16px}
+
+/* toast + outro */
+#toast{left:50%;bottom:28px;transform:translate(-50%,20px);padding:12px 20px;border-radius:14px;background:rgba(13,20,20,.86);color:#fff;font-size:16px;opacity:0;transition:opacity 260ms var(--eo),transform 320ms var(--eo);z-index:40;white-space:nowrap}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#camErr{left:50%;top:118px;max-width:760px;transform:translate(-50%,-10px);padding:14px 22px;border-radius:14px;background:rgba(13,20,20,.86);color:#fff;font-size:17px;line-height:1.4;text-align:center;opacity:0;pointer-events:none;transition:opacity 260ms var(--eo),transform 320ms var(--eo);z-index:40}
+#camErr.show{opacity:1;transform:translate(-50%,0)}
+#outro{inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(255,255,255,.92);backdrop-filter:blur(14px);opacity:0;pointer-events:none;transition:opacity 500ms var(--es)}
+#outro.show{opacity:1;pointer-events:auto}
+#outro h2{font-size:48px;font-weight:700;letter-spacing:-.5px;margin-top:18px}
+#outro p{font-size:22px;color:var(--grey)}
+#outro.show > *{animation:rise 600ms var(--eo) both}
+#outro.show > *:nth-child(2){animation-delay:80ms}
+#outro.show > *:nth-child(3){animation-delay:160ms}
+
+/* prototype nav (outside the terminal) */
+.nav{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;padding:6px;border-radius:14px;background:rgba(255,255,255,.7);backdrop-filter:blur(10px);box-shadow:0 6px 20px -10px rgba(0,0,0,.3);font-family:Inter,system-ui,sans-serif}
+.nav button{white-space:nowrap;font-size:12px;padding:6px 10px;border-radius:9px;color:#4d5a59;transition:background 150ms,color 150ms}
+.nav button:hover{background:#fff}
+.nav button.on{background:var(--teal);color:#fff}
+.nav .sep{width:1px;height:18px;background:#cfdad9;margin:0 2px}
+.nav select{font:12px Inter,system-ui,sans-serif;max-width:230px;padding:6px 8px;border:0;border-radius:9px;background:transparent;color:#4d5a59;outline:none;cursor:pointer}
+.nav select:hover{background:#fff}
+.nav .tag{font-size:11px;color:#a05a00;background:#fff3dc;padding:5px 8px;border-radius:8px;white-space:nowrap}
+
+@media (prefers-reduced-motion:reduce){
+  .blob{animation:none}
+  .stage.scan-idle .scan-loop{animation-duration:6s}
+}
+</style>
+</head>
+<body>
+<div class="viewport"><div class="frame" id="frame"><div class="stage" id="stage" data-bg="grad">
+
+  <!-- persistent background -->
+  <div class="abs" id="bgGrad"></div>
+  <div class="abs" id="camBg"><video class="camv" autoplay muted playsinline></video></div>
+  <div class="abs blob" id="blobA"></div>
+  <div class="abs blob" id="blobB"></div>
+  <div class="abs" id="camPerson"><video class="camv" autoplay muted playsinline></video></div>
+
+  <!-- scanning rig (shared across scan, auth, success) -->
+  <div class="abs" id="rig">
+    <div class="abs" id="corners">
+      <svg width="536" height="535" viewBox="0 0 536 535" fill="none">
+        <path d="M454.5 2.5H513.5C524.546 2.5 533.5 11.4543 533.5 22.5V111.5" stroke-width="5" stroke-linecap="round"/>
+        <path d="M81.5 2.5H22.5C11.4543 2.5 2.5 11.4543 2.5 22.5V111.5" stroke-width="5" stroke-linecap="round"/>
+        <path d="M2.5 423.5V512.5C2.5 523.546 11.4543 532.5 22.5 532.5H81.5" stroke-width="5" stroke-linecap="round"/>
+        <path d="M533.5 423.5V512.5C533.5 523.546 524.546 532.5 513.5 532.5H454.5" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="abs" id="scanPos"><div class="scan-loop"></div></div>
+    <div class="abs" id="hexWrap">
+      <svg width="346.4" height="388" viewBox="0 0 346.41 388" fill="none">
+        <defs><linearGradient id="hg" x1="173" y1="0" x2="173" y2="388" gradientUnits="userSpaceOnUse"><stop stop-color="#408986"/><stop offset="1" stop-color="#5CBCB8"/></linearGradient></defs>
+        <path id="hexGlow" d="M153.705 5.22513C165.772 -1.74155 180.638 -1.74155 192.705 5.22513L326.91 82.7085C338.977 89.6751 346.41 102.55 346.41 116.483V271.45C346.41 285.383 338.977 298.258 326.91 305.225L192.705 382.708C180.638 389.675 165.772 389.675 153.705 382.708L19.5 305.225C7.43336 298.258 0 285.383 0 271.45V116.483C0 102.55 7.43336 89.6751 19.5 82.7085L153.705 5.22513Z"/>
+        <path id="hexMain" d="M153.705 5.22513C165.772 -1.74155 180.638 -1.74155 192.705 5.22513L326.91 82.7085C338.977 89.6751 346.41 102.55 346.41 116.483V271.45C346.41 285.383 338.977 298.258 326.91 305.225L192.705 382.708C180.638 389.675 165.772 389.675 153.705 382.708L19.5 305.225C7.43336 298.258 0 285.383 0 271.45V116.483C0 102.55 7.43336 89.6751 19.5 82.7085L153.705 5.22513Z" stroke="url(#hg)" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/>
+        <path id="hexTrace" d="M153.705 5.22513C165.772 -1.74155 180.638 -1.74155 192.705 5.22513L326.91 82.7085C338.977 89.6751 346.41 102.55 346.41 116.483V271.45C346.41 285.383 338.977 298.258 326.91 305.225L192.705 382.708C180.638 389.675 165.772 389.675 153.705 382.708L19.5 305.225C7.43336 298.258 0 285.383 0 271.45V116.483C0 102.55 7.43336 89.6751 19.5 82.7085L153.705 5.22513Z" pathLength="100"/>
+      </svg>
+    </div>
+    <div class="abs dot" style="left:693px;top:399px"></div>
+    <div class="abs dot" style="left:586px;top:404px"></div>
+    <div class="abs dot" style="left:580px;top:324px"></div>
+    <div class="abs dot" style="left:718px;top:344px"></div>
+    <div class="abs dot" style="left:640px;top:464px"></div>
+    <div class="abs dot" style="left:560px;top:484px"></div>
+    <div class="abs dot" style="left:640px;top:556px"></div>
+    <div class="abs dot" style="left:728px;top:464px"></div>
+    <svg class="abs" id="mesh" viewBox="0 0 171 235" fill="none"><path pathLength="1" d="M153.032 19.0657L129.032 75.5657M96.5322 10.9942L153.032 19.0657L170.032 139.566L80.5322 234.066L35.5322 192.441M129.032 75.5657L170.032 139.566M129.032 75.5657L92.0053 77.3205M129.032 75.5657L101.372 112.066M170.032 139.566H125.282M23.5322 80.5657V0.565674M23.5322 80.5657L0.532227 160.066M92.0053 77.3205L76.2822 78.0657L23.5322 80.5657M23.5322 80.5657L52.0322 110.066M96.5322 10.9942L23.5322 0.565674L0.532227 160.066L35.5322 192.441M23.5322 0.565674L76.2822 78.0657M35.5322 192.441L52.0322 110.066M80.5322 234.066V139.566M80.5322 139.566L101.372 112.066M80.5322 139.566H125.282M80.5322 139.566L52.0322 110.066M92.0053 77.3205L91.5322 75.5657L96.5322 10.9942M92.0053 77.3205L101.372 112.066M101.372 112.066L125.282 139.566"/></svg>
+    <div class="abs" id="okIcon">
+      <div class="ring"></div><div class="ring"></div>
+      <div class="disc"></div>
+      <svg viewBox="0 0 150 150"><path id="okCheck" pathLength="1" d="M46 78 L66 98 L106 56"/></svg>
+    </div>
+  </div>
+
+  <!-- SCREEN 01 · Payment method -->
+  <section class="screen is-active" data-screen="method">
+    <div class="abs center-x s1-label rise" style="--i:0">Total Belanja</div>
+    <div class="abs center-x s1-amount rise" style="--i:1">Rp450.000</div>
+    <div class="abs s1-line"></div>
+    <div class="abs center-x s1-q rise" style="--i:3">Kamu Mau Bayar Pakai Apa?</div>
+    <div class="abs rise" style="--i:4;inset:0;pointer-events:none">
+      <button class="pay" id="payQris" style="pointer-events:auto" aria-label="QRIS Barcode">
+        <span class="back"></span><span class="face"></span>
+        <img src="assets/qris.webp" alt="QRIS">
+        <span class="lbl" style="top:102px">Barcode</span>
+      </button>
+      <button class="pay" id="payRupa" style="pointer-events:auto" aria-label="Biometrik Wajah (Rupa)">
+        <span class="back"></span><span class="face"></span>
+        <span class="logo" id="cardLogo"><svg width="100%" height="100%" viewBox="0 0 57 49" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g filter="url(#filter0_i_10_296)">
+<path d="M22.6074 0.0204256C22.6074 0.0309831 22.6155 0.0397984 22.626 0.0407838C23.8626 0.156712 25.0783 0.514408 26.2275 1.10059C27.6519 1.82708 28.946 2.89203 30.0361 4.23438C31.1263 5.57687 31.992 7.17076 32.582 8.9248C33.172 10.6787 33.4755 12.5586 33.4756 14.457C33.4756 16.3556 33.1721 18.2362 32.582 19.9902C31.992 21.7443 31.1263 23.3382 30.0361 24.6807C29.2673 25.6273 29.1303 27.0032 29.8981 27.9507L39.4979 39.7992C40.2349 40.7089 41.3432 41.2372 42.514 41.2371L45.3119 41.2368C47.4552 41.2365 49.1925 39.4991 49.1927 37.3559L49.1931 31.0488C49.1932 28.9054 50.9308 27.168 53.0742 27.168C55.2176 27.168 56.9552 28.9055 56.9553 31.0489L56.9561 45.1182C56.9555 47.2613 55.218 49 53.0749 49H38.813C37.6421 49 36.5338 48.4714 35.7969 47.5615L21.8535 30.352C21.1166 29.4424 20.0085 28.9141 18.8379 28.9141H14.457C12.3137 28.9141 10.5762 27.1765 10.5762 25.0332C10.5762 22.8899 12.3137 21.1523 14.457 21.1523H22.3369C22.8485 21.0826 23.3507 20.9251 23.8281 20.6816C24.4919 20.3431 25.0955 19.8472 25.6035 19.2217C26.1114 18.5962 26.5141 17.8533 26.7891 17.0361C27.064 16.2187 27.2061 15.3418 27.2061 14.457C27.206 13.5724 27.064 12.6962 26.7891 11.8789C26.5141 11.0617 26.1115 10.3189 25.6035 9.69336C25.0955 9.06779 24.4919 8.57196 23.8281 8.2334C23.3486 7.98881 22.8441 7.83103 22.3301 7.76172H10.6741C8.53063 7.76172 6.79297 9.49938 6.79297 11.6429V45.6035C6.79297 47.4793 5.27231 49 3.39648 49C1.52066 49 0 47.4793 0 45.6035V3.88117C0 1.73766 1.73766 0 3.88117 0H22.587C22.5983 0 22.6074 0.00914486 22.6074 0.0204256Z" fill="url(#paint0_linear_10_296)"/>
+<circle cx="42.5566" cy="27.9057" r="3.26019" fill="url(#paint1_linear_10_296)"/>
+</g>
+<defs>
+<filter id="filter0_i_10_296" x="0" y="0" width="56.9561" height="49.7762" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="0.776235"/>
+<feGaussianBlur stdDeviation="1.67861"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_10_296"/>
+</filter>
+<linearGradient id="paint0_linear_10_296" x1="26.2258" y1="-0.191319" x2="26.2258" y2="49.0001" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+<linearGradient id="paint1_linear_10_296" x1="42.5566" y1="24.6455" x2="42.5566" y2="31.1659" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+</defs>
+</svg></span>
+        <span class="lbl" style="top:91px">Biometrik Wajah<br>(Rupa)</span>
+        <span class="badge">Baru!</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- SCREEN 02 · Payment source -->
+  <section class="screen" data-screen="source">
+    <div class="abs center-x s2-title rise" style="--i:0">Konfirmasi Sumber Saldo</div>
+    <img class="abs s2-logo rise" style="--i:1" src="assets/gopay.webp" alt="GoPay">
+    <div class="abs center-x s2-note rise" style="--i:2">Rp450.000 akan dibayar dengan saldo <b>GoPay</b> Anda</div>
+    <button class="abs btn rise" style="--i:3" id="btnNext">Lanjutkan</button>
+  </section>
+
+  <!-- SCREEN 03–05 · Face detection & scanning -->
+  <section class="screen" data-screen="scan">
+    <button class="abs btn" id="pill"><span class="fill"></span><span class="txt">Mulai Memindai</span></button>
+  </section>
+
+  <!-- SCREEN 06 · Payment authorization -->
+  <section class="screen" data-screen="auth">
+    <div class="abs center-x auth-title rise" style="--i:0">Mengotorisasi Pembayaran</div>
+    <div class="abs center-x auth-sub rise" style="--i:1">Rp450.000 · GoPay</div>
+    <div class="abs steps rise" style="--i:2">
+      <div class="step" data-s="0"><span class="si"></span>Identitas wajah terverifikasi</div>
+      <div class="step" data-s="1"><span class="si"></span>Menghubungkan ke GoPay</div>
+      <div class="step" data-s="2"><span class="si"></span>Mengonfirmasi transaksi</div>
+    </div>
+  </section>
+
+  <!-- SCREEN 07 · Payment success -->
+  <section class="screen" data-screen="success">
+    <div class="abs center-x ok-title rise" style="--i:2">Pembayaran Berhasil!</div>
+    <div class="abs center-x ok-sub rise" style="--i:3">Transaksi Anda berhasil diproses.</div>
+    <div class="abs ok-card rise" style="--i:4">
+      <div class="ok-total"><span>Total Pembayaran</span><b>Rp450.000</b></div>
+      <div class="ok-row"><span>Metode Pembayaran</span><img src="assets/gopay.webp" alt="GoPay"></div>
+      <div class="ok-row"><span>No. Referensi</span><span class="v mono" data-ref></span></div>
+    </div>
+    <button class="abs btn rise" style="--i:5" id="btnReceipt">Lihat Struk Digital</button>
+    <div class="abs auto" id="autoBar"><i></i></div>
+  </section>
+
+  <!-- SCREEN 08–09 · Digital receipt + email -->
+  <section class="screen" data-screen="receipt">
+    <div class="abs paper-wrap">
+      <div class="paper">
+        <div class="p-head">
+          <div class="p-store"><b>Indomaret</b><span>Kasir 02 · Struk Pembayaran</span></div>
+          <span class="chip">Berhasil</span>
+        </div>
+        <div class="p-total"><span>Total Pembayaran</span><b>Rp450.000</b></div>
+        <div class="dash"></div>
+        <div class="p-rows">
+          <div class="p-row"><span>Tanggal</span><span class="v" data-date></span></div>
+          <div class="p-row"><span>Waktu</span><span class="v" data-time></span></div>
+          <div class="p-row"><span>Metode Pembayaran</span><span class="v">GoPay</span></div>
+          <div class="p-row"><span>Autentikasi</span><span class="v">Biometrik Wajah (Rupa)</span></div>
+          <div class="p-row"><span>No. Referensi</span><span class="v mono" data-ref></span></div>
+        </div>
+        <div class="dash"></div>
+        <div class="p-foot"><svg width="34" height="29" viewBox="0 0 57 49">
+<g filter="url(#filter0_i_ft)">
+<path d="M22.6074 0.0204256C22.6074 0.0309831 22.6155 0.0397984 22.626 0.0407838C23.8626 0.156712 25.0783 0.514408 26.2275 1.10059C27.6519 1.82708 28.946 2.89203 30.0361 4.23438C31.1263 5.57687 31.992 7.17076 32.582 8.9248C33.172 10.6787 33.4755 12.5586 33.4756 14.457C33.4756 16.3556 33.1721 18.2362 32.582 19.9902C31.992 21.7443 31.1263 23.3382 30.0361 24.6807C29.2673 25.6273 29.1303 27.0032 29.8981 27.9507L39.4979 39.7992C40.2349 40.7089 41.3432 41.2372 42.514 41.2371L45.3119 41.2368C47.4552 41.2365 49.1925 39.4991 49.1927 37.3559L49.1931 31.0488C49.1932 28.9054 50.9308 27.168 53.0742 27.168C55.2176 27.168 56.9552 28.9055 56.9553 31.0489L56.9561 45.1182C56.9555 47.2613 55.218 49 53.0749 49H38.813C37.6421 49 36.5338 48.4714 35.7969 47.5615L21.8535 30.352C21.1166 29.4424 20.0085 28.9141 18.8379 28.9141H14.457C12.3137 28.9141 10.5762 27.1765 10.5762 25.0332C10.5762 22.8899 12.3137 21.1523 14.457 21.1523H22.3369C22.8485 21.0826 23.3507 20.9251 23.8281 20.6816C24.4919 20.3431 25.0955 19.8472 25.6035 19.2217C26.1114 18.5962 26.5141 17.8533 26.7891 17.0361C27.064 16.2187 27.2061 15.3418 27.2061 14.457C27.206 13.5724 27.064 12.6962 26.7891 11.8789C26.5141 11.0617 26.1115 10.3189 25.6035 9.69336C25.0955 9.06779 24.4919 8.57196 23.8281 8.2334C23.3486 7.98881 22.8441 7.83103 22.3301 7.76172H10.6741C8.53063 7.76172 6.79297 9.49938 6.79297 11.6429V45.6035C6.79297 47.4793 5.27231 49 3.39648 49C1.52066 49 0 47.4793 0 45.6035V3.88117C0 1.73766 1.73766 0 3.88117 0H22.587C22.5983 0 22.6074 0.00914486 22.6074 0.0204256Z" fill="url(#paint0_linear_ft)"/>
+<circle cx="42.5566" cy="27.9057" r="3.26019" fill="url(#paint1_linear_ft)"/>
+</g>
+<defs>
+<filter id="filter0_i_ft" x="0" y="0" width="56.9561" height="49.7762" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="0.776235"/>
+<feGaussianBlur stdDeviation="1.67861"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_ft"/>
+</filter>
+<linearGradient id="paint0_linear_ft" x1="26.2258" y1="-0.191319" x2="26.2258" y2="49.0001" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+<linearGradient id="paint1_linear_ft" x1="42.5566" y1="24.6455" x2="42.5566" y2="31.1659" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+</defs>
+</svg><span>Dibayar dengan Face Pay Rupa.<br>Simpan struk ini sebagai bukti pembayaran.</span></div>
+      </div>
+    </div>
+    <div class="abs r-col">
+      <div class="rise" style="--i:1"><div class="r-title">Struk Digital</div><div class="r-sub">Transaksi Anda telah berhasil.</div></div>
+      <div class="mail-card rise" style="--i:2">
+        <form class="mail-pane" id="mailForm" novalidate>
+          <div class="m-lbl">Kirim struk ke email</div>
+          <div class="field" id="field">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7fa9a7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>
+            <input id="email" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="nama@email.com">
+          </div>
+          <div class="helper">Format email belum valid. Contoh: nama@gmail.com</div>
+          <div class="chips"><button type="button" class="dchip">@gmail.com</button><button type="button" class="dchip">@yahoo.com</button><button type="button" class="dchip">@outlook.com</button></div>
+          <button class="btn" id="btnSend" type="submit">Kirimkan ke Email</button>
+        </form>
+        <div class="mail-pane sent hide" id="sentPane">
+          <svg width="76" height="76" viewBox="0 0 76 76"><circle class="c" cx="38" cy="38" r="34" pathLength="1"/><path class="k" d="M24 39 L34 49 L53 29" pathLength="1"/></svg>
+          <h3>Struk berhasil dikirim ke email Anda.</h3>
+          <p id="sentTo"></p>
+          <button class="again" id="btnAgain" type="button">Kirim ke email lain</button>
+        </div>
+      </div>
+      <button class="ghost rise" style="--i:3" id="btnDone">Selesai</button>
+    </div>
+  </section>
+
+  <!-- chrome -->
+  <div class="abs" id="hdrLogo"><svg width="100%" height="100%" viewBox="0 0 57 49" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g filter="url(#filter0_i_10_296)">
+<path d="M22.6074 0.0204256C22.6074 0.0309831 22.6155 0.0397984 22.626 0.0407838C23.8626 0.156712 25.0783 0.514408 26.2275 1.10059C27.6519 1.82708 28.946 2.89203 30.0361 4.23438C31.1263 5.57687 31.992 7.17076 32.582 8.9248C33.172 10.6787 33.4755 12.5586 33.4756 14.457C33.4756 16.3556 33.1721 18.2362 32.582 19.9902C31.992 21.7443 31.1263 23.3382 30.0361 24.6807C29.2673 25.6273 29.1303 27.0032 29.8981 27.9507L39.4979 39.7992C40.2349 40.7089 41.3432 41.2372 42.514 41.2371L45.3119 41.2368C47.4552 41.2365 49.1925 39.4991 49.1927 37.3559L49.1931 31.0488C49.1932 28.9054 50.9308 27.168 53.0742 27.168C55.2176 27.168 56.9552 28.9055 56.9553 31.0489L56.9561 45.1182C56.9555 47.2613 55.218 49 53.0749 49H38.813C37.6421 49 36.5338 48.4714 35.7969 47.5615L21.8535 30.352C21.1166 29.4424 20.0085 28.9141 18.8379 28.9141H14.457C12.3137 28.9141 10.5762 27.1765 10.5762 25.0332C10.5762 22.8899 12.3137 21.1523 14.457 21.1523H22.3369C22.8485 21.0826 23.3507 20.9251 23.8281 20.6816C24.4919 20.3431 25.0955 19.8472 25.6035 19.2217C26.1114 18.5962 26.5141 17.8533 26.7891 17.0361C27.064 16.2187 27.2061 15.3418 27.2061 14.457C27.206 13.5724 27.064 12.6962 26.7891 11.8789C26.5141 11.0617 26.1115 10.3189 25.6035 9.69336C25.0955 9.06779 24.4919 8.57196 23.8281 8.2334C23.3486 7.98881 22.8441 7.83103 22.3301 7.76172H10.6741C8.53063 7.76172 6.79297 9.49938 6.79297 11.6429V45.6035C6.79297 47.4793 5.27231 49 3.39648 49C1.52066 49 0 47.4793 0 45.6035V3.88117C0 1.73766 1.73766 0 3.88117 0H22.587C22.5983 0 22.6074 0.00914486 22.6074 0.0204256Z" fill="url(#paint0_linear_10_296)"/>
+<circle cx="42.5566" cy="27.9057" r="3.26019" fill="url(#paint1_linear_10_296)"/>
+</g>
+<defs>
+<filter id="filter0_i_10_296" x="0" y="0" width="56.9561" height="49.7762" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="0.776235"/>
+<feGaussianBlur stdDeviation="1.67861"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_10_296"/>
+</filter>
+<linearGradient id="paint0_linear_10_296" x1="26.2258" y1="-0.191319" x2="26.2258" y2="49.0001" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+<linearGradient id="paint1_linear_10_296" x1="42.5566" y1="24.6455" x2="42.5566" y2="31.1659" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+</defs>
+</svg></div>
+  <button class="abs" id="backBtn" aria-label="Kembali"><svg width="14" height="24" viewBox="0 0 14 24" fill="none"><path d="M12 2 2 12l10 10" stroke="#3f4646" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <div class="abs" id="toast"></div>
+  <div class="abs" id="camErr" role="alert"></div>
+  <div class="abs" id="outro"><div style="width:84px;height:72px"><svg width="100%" height="100%" viewBox="0 0 57 49" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g filter="url(#filter0_i_big)">
+<path d="M22.6074 0.0204256C22.6074 0.0309831 22.6155 0.0397984 22.626 0.0407838C23.8626 0.156712 25.0783 0.514408 26.2275 1.10059C27.6519 1.82708 28.946 2.89203 30.0361 4.23438C31.1263 5.57687 31.992 7.17076 32.582 8.9248C33.172 10.6787 33.4755 12.5586 33.4756 14.457C33.4756 16.3556 33.1721 18.2362 32.582 19.9902C31.992 21.7443 31.1263 23.3382 30.0361 24.6807C29.2673 25.6273 29.1303 27.0032 29.8981 27.9507L39.4979 39.7992C40.2349 40.7089 41.3432 41.2372 42.514 41.2371L45.3119 41.2368C47.4552 41.2365 49.1925 39.4991 49.1927 37.3559L49.1931 31.0488C49.1932 28.9054 50.9308 27.168 53.0742 27.168C55.2176 27.168 56.9552 28.9055 56.9553 31.0489L56.9561 45.1182C56.9555 47.2613 55.218 49 53.0749 49H38.813C37.6421 49 36.5338 48.4714 35.7969 47.5615L21.8535 30.352C21.1166 29.4424 20.0085 28.9141 18.8379 28.9141H14.457C12.3137 28.9141 10.5762 27.1765 10.5762 25.0332C10.5762 22.8899 12.3137 21.1523 14.457 21.1523H22.3369C22.8485 21.0826 23.3507 20.9251 23.8281 20.6816C24.4919 20.3431 25.0955 19.8472 25.6035 19.2217C26.1114 18.5962 26.5141 17.8533 26.7891 17.0361C27.064 16.2187 27.2061 15.3418 27.2061 14.457C27.206 13.5724 27.064 12.6962 26.7891 11.8789C26.5141 11.0617 26.1115 10.3189 25.6035 9.69336C25.0955 9.06779 24.4919 8.57196 23.8281 8.2334C23.3486 7.98881 22.8441 7.83103 22.3301 7.76172H10.6741C8.53063 7.76172 6.79297 9.49938 6.79297 11.6429V45.6035C6.79297 47.4793 5.27231 49 3.39648 49C1.52066 49 0 47.4793 0 45.6035V3.88117C0 1.73766 1.73766 0 3.88117 0H22.587C22.5983 0 22.6074 0.00914486 22.6074 0.0204256Z" fill="url(#paint0_linear_big)"/>
+<circle cx="42.5566" cy="27.9057" r="3.26019" fill="url(#paint1_linear_big)"/>
+</g>
+<defs>
+<filter id="filter0_i_big" x="0" y="0" width="56.9561" height="49.7762" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="0.776235"/>
+<feGaussianBlur stdDeviation="1.67861"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0"/>
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_big"/>
+</filter>
+<linearGradient id="paint0_linear_big" x1="26.2258" y1="-0.191319" x2="26.2258" y2="49.0001" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+<linearGradient id="paint1_linear_big" x1="42.5566" y1="24.6455" x2="42.5566" y2="31.1659" gradientUnits="userSpaceOnUse">
+<stop stop-color="#5CBCB8"/>
+<stop offset="1" stop-color="#126764"/>
+</linearGradient>
+</defs>
+</svg></div><h2>Terima kasih!</h2><p>Silakan ambil barang belanjaan Anda.</p></div>
+</div></div></div>
+
+<nav class="nav" id="nav">
+  <button data-go="reset" title="Mulai ulang (R)">↺ Ulang</button>
+  <span class="sep"></span>
+  <select id="camSelect" title="Pilih kamera" hidden></select>
+  <button id="btnMirror" type="button" title="Cermin (M)">⇋ Cermin: Aktif</button>
+  <span class="tag" id="testTag" hidden>MODE UJI · foto dummy · H = sembunyikan wajah</span>
+</nav>
+
+<script type="module">
+import { Camera, FaceTracker, loadFaceModel, analyzeFaces, makeMapper, point, createTestSource, MSG } from './js/face-engine.js';
+
+(() => {
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const stage = $('#stage'), frame = $('#frame');
+const EO = 'cubic-bezier(.22,1,.36,1)', ES = 'cubic-bezier(.65,0,.35,1)';
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---- fit the 1280×800 terminal to the window ---- */
+let S = 1;
+function fit(){ S = Math.min((innerWidth - 48) / 1316, (innerHeight - 92) / 836, 1.25); frame.style.transform = `scale(${S})`; }
+addEventListener('resize', fit); fit();
+
+/* ---- tiny animation helpers (Web Animations API) ---- */
+let run = 0; const live = new Set();
+const sleep = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 120) : ms));
+function tw(el, to, dur, ease = EO, delay = 0){
+  if (!el) return Promise.resolve();
+  const els = el.length !== undefined && !(el instanceof Element) ? [...el] : [el];
+  return Promise.all(els.map(e => {
+    const a = e.animate([to], { duration: reduce ? Math.min(dur, 160) : dur, easing: ease, delay: reduce ? 0 : delay, fill: 'forwards' });
+    live.add(a);
+    return a.finished.then(() => { Object.assign(e.style, to); a.cancel(); live.delete(a); }).catch(() => live.delete(a));
+  }));
+}
+function set(el, props){ (el instanceof Element ? [el] : [...el]).forEach(e => Object.assign(e.style, props)); }
+function killAll(){ live.forEach(a => a.cancel()); live.clear(); }
+
+/* ---- elements ---- */
+const el = {
+  camBg: $('#camBg'), person: $('#camPerson'), corners: $('#corners'), hex: $('#hexWrap'), hexMain: $('#hexMain'),
+  scan: $('#scanPos'), dots: $$('.dot'), mesh: $('#mesh path'), ok: $('#okIcon'), okCheck: $('#okCheck'), rings: $$('.ring'),
+  logo: $('#hdrLogo'), back: $('#backBtn'), pill: $('#pill'), pillTxt: $('#pill .txt'), pillFill: $('#pill .fill'),
+  toast: $('#toast'), outro: $('#outro'), steps: $$('.step'), camErr: $('#camErr')
+};
+// posisi default dot & mesh (dipakai saat rig tidak mengikuti wajah)
+el.dots.forEach(d => { d.dataset.x = d.style.left; d.dataset.y = d.style.top; });
+const MESH_D0 = el.mesh.getAttribute('d');
+function restoreRig(){
+  el.dots.forEach(d => { d.style.left = d.dataset.x; d.style.top = d.dataset.y; });
+  el.mesh.setAttribute('d', MESH_D0);
+}
+
+/* ---- transaction data ---- */
+let REF = '';
+function newTxn(){
+  const d = new Date();
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: '2-digit', month: '2-digit', day: '2-digit' }).format(d).replace(/-/g, '');
+  const rnd = Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+  REF = `RUPA-${p}-${rnd}`;
+  $$('[data-ref]').forEach(n => n.textContent = REF);
+  $$('[data-date]').forEach(n => n.textContent = d.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'long', year: 'numeric' }));
+  $$('[data-time]').forEach(n => n.textContent = d.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':') + ' WIB');
+}
+newTxn();
+
+/* ---- rig presets (instant) ---- */
+const RIG = {
+  off(){
+    stage.classList.remove('cam', 'scanning', 'scan-idle', 'locked', 'tracing');
+    set(el.corners, { opacity: 0, transform: 'rotate(-45deg) scale(.8)' });
+    set(el.hex, { opacity: 0, transform: 'translateY(0px) rotate(0deg) scale(1)' }); el.hexMain.style.strokeDashoffset = 1;
+    set(el.scan, { opacity: 0, transform: 'none' });
+    set(el.dots, { opacity: 0, transform: 'scale(0)' }); el.mesh.style.strokeDashoffset = 1; el.mesh.style.opacity = '';
+    set(el.ok, { opacity: 0, transform: 'scale(.6)' }); el.okCheck.style.strokeDashoffset = 1; set(el.rings, { opacity: 0, transform: 'none' });
+    set(el.camBg, { opacity: 0, transform: 'scale(1.06)' }); set(el.person, { opacity: 0, transform: 'translateY(24px) scale(1.02)' });
+    restoreRig();
+  },
+  ready(){
+    RIG.off();
+    set(el.corners, { opacity: 1, transform: 'none' });
+    set(el.hex, { opacity: 1 }); el.hexMain.style.strokeDashoffset = 0;
+    set(el.scan, { opacity: .9 }); stage.classList.add('scan-idle', 'scanning');
+  },
+  verified(){
+    RIG.ready();
+    stage.classList.add('cam', 'locked');
+    set(el.hex, { opacity: 1, transform: 'translateY(0px) rotate(60deg) scale(1)' });
+    set(el.corners, { opacity: 1, transform: 'scale(.96)' });
+    set(el.camBg, { opacity: 1, transform: 'none' }); set(el.person, { opacity: 1, transform: 'none' });
+    set(el.dots, { opacity: 1, transform: 'scale(1)' }); el.mesh.style.strokeDashoffset = 0;
+  }
+};
+
+/* =====================================================================
+ * Kamera asli + MediaPipe Face Landmarker (lokal, lihat js/face-engine.js)
+ * Catatan: ini DETEKSI wajah. "Terverifikasi" di prototype belum berarti
+ * pencocokan wajah ke akun — liveness & template matching masih simulasi.
+ * ===================================================================== */
+const camVideos = $$('.camv');
+const camera = new Camera(camVideos);
+const TEST = new URLSearchParams(location.search).has('uji');
+if (TEST){ camera.sourceFactory = createTestSource('assets/cam-person-dummy.webp', 'assets/cam-bg-dummy.webp'); $('#testTag').hidden = false; }
+
+const CAM_BOX = { x: -60, y: -60, w: 1400, h: 920 };     // kotak #camPerson / #camBg (inset:-60px)
+const HEX_C = { x: 640, y: 399 };                        // tengah hexagon = target posisi wajah
+const CORNER_C = { x: 642, y: 422.5, size: 536 };        // tengah & ukuran bracket
+const MESH_O = { x: 560, y: 325 };                       // origin svg #mesh
+// titik mesh low-poly desain → indeks landmark MediaPipe (array = rata-rata beberapa titik)
+const LM = { A: 63, B: [33, 133], C: [151, 108], D: 123, E: 152, F: 379, G: [133, 168], H: 129, I: 205,
+             J: [263, 362], K: 293, L: 352, M: [362, 168], N: 358, O: 1 };
+const MESH_EDGES = 'AB CA AD DE EF BD BG BH DI JK JL GM MJ JN CK KL LF KM FN EO OH OI ON GH HI GC'.split(' ');
+const DOT_KEYS = ['B', 'J', 'K', 'A', 'O', 'L', 'E', 'D'];   // urutan sama dengan .dot di HTML
+
+/* ---- mirror (default aktif) + pilih kamera ---- */
+const btnMirror = $('#btnMirror'), camSelect = $('#camSelect');
+let mirrored = true;
+function setMirror(on){ mirrored = on; stage.classList.toggle('mirror', on); btnMirror.textContent = `⇋ Cermin: ${on ? 'Aktif' : 'Mati'}`; btnMirror.classList.toggle('on', on); }
+setMirror(true);
+btnMirror.addEventListener('click', () => setMirror(!mirrored));
+camera.onDevices = (list, id) => {
+  camSelect.replaceChildren(...list.map((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || `Kamera ${i + 1}`; return o; }));
+  camSelect.value = id; camSelect.hidden = list.length <= 1;
+};
+camSelect.addEventListener('change', async () => {
+  setMirror(true);                                   // reset ke default saat ganti kamera
+  try { await camera.selectDevice(camSelect.value); hideCamErr(); }
+  catch (err){ if (!err.aborted){ camera.stop(); if (camOn) camFail(err.message); else showCamErr(err.message); } }
+});
+camera.onEnded = () => { if (camOn){ go('scan'); showCamErr(MSG.ended); } };
+
+function showCamErr(msg){ el.camErr.textContent = msg; el.camErr.classList.add('show'); }
+function hideCamErr(){ el.camErr.classList.remove('show'); }
+function camFail(msg){
+  showCamErr(msg || MSG.generic);
+  camOn = false; trk.active = false; tracker.stop();
+  setPill('<span>Coba Lagi</span>'); el.pill.disabled = false;
+}
+
+/* ---- tracking state ---- */
+const trk = {
+  active: false, face: null, count: 0, goodSince: 0, badSince: 0, last: 0, sv: null, cs: { x: 0, y: 0, s: 1 },
+  reset(){ this.face = null; this.count = 0; this.goodSince = 0; this.badSince = performance.now(); this.sv = null; this.cs = { x: 0, y: 0, s: 1 }; this.last = 0; },
+  goodFor(){ return this.goodSince ? performance.now() - this.goodSince : 0; },
+  lost(){ return !!this.badSince && performance.now() - this.badSince > 250; }   // toleransi 250 ms
+};
+const inPos = (f, tol) => f && Math.abs(f.box.cx - HEX_C.x) < tol.c && Math.abs(f.box.cy - HEX_C.y) < tol.c
+  && f.box.w > tol.min && f.box.w < tol.max && Math.abs(f.yaw) < tol.yaw;
+const STRICT = { c: 85, min: 150, max: 380, yaw: 0.28 };   // untuk mulai memindai
+const LOOSE = { c: 140, min: 110, max: 460, yaw: 0.45 };   // selama memindai (histeresis)
+
+const tracker = new FaceTracker(camVideos[1], (faces, vw, vh) => {
+  if (!trk.active) return;
+  const now = performance.now(), dt = trk.last ? Math.min(100, now - trk.last) : 16; trk.last = now;
+  const { count, face } = analyzeFaces(faces, makeMapper(vw, vh, CAM_BOX, mirrored));
+  trk.count = count; trk.face = face;
+  const one = count === 1;
+  if (one && inPos(face, STRICT)){ if (!trk.goodSince) trk.goodSince = now; } else trk.goodSince = 0;
+  if (one && inPos(face, LOOSE)) trk.badSince = 0; else if (!trk.badSince) trk.badSince = now;
+  renderRig(face, dt);
+});
+
+const lerp = (a, b, k) => a + (b - a) * k;
+function renderRig(face, dt){
+  // bracket mengikuti kotak wajah; tanpa wajah kembali ke posisi hexagon
+  const kc = 1 - Math.exp(-dt / 110);
+  let tx = 0, ty = 0, ts = 1;
+  if (face){
+    tx = face.box.cx - CORNER_C.x; ty = face.box.cy - CORNER_C.y;
+    ts = Math.min(1.1, Math.max(0.42, Math.max(face.box.w, face.box.h) * 1.32 / CORNER_C.size));
+  }
+  const c = trk.cs; c.x = lerp(c.x, tx, kc); c.y = lerp(c.y, ty, kc); c.s = lerp(c.s, ts, kc);
+  el.corners.style.transform = `translate(${c.x.toFixed(1)}px,${c.y.toFixed(1)}px) scale(${c.s.toFixed(3)})`;
+  if (!face) return;
+  // dot & mesh mengikuti landmark asli (dihaluskan sedikit supaya tidak bergetar)
+  const kp = trk.sv ? 1 - Math.exp(-dt / 55) : 1;
+  const sv = trk.sv || (trk.sv = {});
+  for (const k in LM){
+    const p = point(face.pts, LM[k]), q = sv[k] || (sv[k] = { x: p.x, y: p.y });
+    q.x = lerp(q.x, p.x, kp); q.y = lerp(q.y, p.y, kp);
+  }
+  el.dots.forEach((d, i) => { const q = sv[DOT_KEYS[i]]; d.style.left = q.x.toFixed(1) + 'px'; d.style.top = q.y.toFixed(1) + 'px'; });
+  const f = k => `${(sv[k].x - MESH_O.x).toFixed(1)} ${(sv[k].y - MESH_O.y).toFixed(1)}`;
+  el.mesh.setAttribute('d', MESH_EDGES.map(e => `M${f(e[0])}L${f(e[1])}`).join(''));
+}
+
+/* ---- helper alur: tunggu kondisi / batalkan kalau wajah hilang ---- */
+const nextFrame = () => new Promise(r => requestAnimationFrame(r));
+async function until(cond){ while (!cond()) await nextFrame(); }
+async function holdWhile(ms, ok){ const t0 = performance.now(), d = reduce ? Math.min(ms, 120) : ms; await until(() => !ok() || performance.now() - t0 >= d); }
+async function whileOk(p, ok){ let done = false; p.then(() => done = true); await until(() => done || !ok()); }
+function freeze(nodes, props){
+  (nodes instanceof Element ? [nodes] : [...nodes]).forEach(n => {
+    const cs = getComputedStyle(n), v = {}; props.forEach(p => v[p] = cs[p]);
+    n.getAnimations().forEach(a => { a.cancel(); live.delete(a); }); Object.assign(n.style, v);
+  });
+}
+// wajah hilang di tengah pemindaian → progres, dot, dan mesh mundur; kembali ke "Posisikan wajah"
+function abortScan(){
+  freeze(el.pillFill, ['width']); tw(el.pillFill, { width: '0%' }, 320, EO);
+  freeze(el.dots, ['opacity', 'transform']); tw(el.dots, { opacity: 0, transform: 'scale(0)' }, 240, EO);
+  freeze(el.mesh, ['strokeDashoffset']); tw(el.mesh, { strokeDashoffset: 1 }, 280, EO);
+}
+
+/* ---- screen navigation ---- */
+const order = ['method', 'source', 'scan', 'auth', 'success', 'receipt'];
+let cur = 'method';
+function show(name){
+  const prev = $(`.screen[data-screen="${cur}"]`), next = $(`.screen[data-screen="${name}"]`);
+  const dir = order.indexOf(name) >= order.indexOf(cur) ? 1 : -1;
+  stage.style.setProperty('--dir', dir);
+  if (prev && prev !== next){ prev.classList.remove('is-active'); prev.classList.add('is-leaving'); setTimeout(() => prev.classList.remove('is-leaving'), 520); }
+  next.classList.add('is-active');
+  cur = name;
+  stage.dataset.bg = name === 'method' ? 'grad' : 'blobs';
+  el.back.classList.toggle('show', name === 'source' || name === 'scan');
+  const key = name === 'scan' && camOn ? 'cam' : name;
+  $$('#nav [data-go]').forEach(b => b.classList.toggle('on', b.dataset.go === key));
+}
+let camOn = false;
+async function go(name, opts = {}){
+  const id = ++run; killAll(); camOn = false; clearTimeout(autoT);
+  const alive = () => id === run;
+  const from = cur;
+  trk.active = false; tracker.stop(); hideCamErr();
+  if (name !== 'cam' && name !== 'auth') camera.stop();   // kamera hanya menyala selama pemindaian
+  if (!['method', 'source', 'scan'].includes(name)) tw(el.logo, { opacity: 1, transform: 'none' }, 400, EO);
+  switch (name){
+    case 'method': {
+      RIG.off(); resetMethod();
+      if (from !== 'method') tw(el.logo, { opacity: 0, transform: 'translateY(-8px)' }, 300, EO);
+      show('method'); break;
+    }
+    case 'source': {
+      RIG.off(); show('source');
+      if (opts.flyFrom){
+        const a = opts.flyFrom.getBoundingClientRect(), b = el.logo.getBoundingClientRect();
+        const dx = (a.left + a.width / 2 - (b.left + b.width / 2)) / S, dy = (a.top + a.height / 2 - (b.top + b.height / 2)) / S, sc = a.width / b.width;
+        set(el.logo, { opacity: 1, transform: `translate(${dx}px,${dy}px) scale(${sc})` });
+        opts.flyFrom.style.visibility = 'hidden';
+        tw(el.logo, { transform: 'none' }, 720, ES);
+      } else tw(el.logo, { opacity: 1, transform: 'none' }, 420, EO);
+      break;
+    }
+    case 'scan': {
+      show('scan'); tw(el.logo, { opacity: 1, transform: 'none' }, 300);
+      setPill('Mulai Memindai', true); set(el.pillFill, { width: '0%' }); el.pill.disabled = true;
+      RIG.off();
+      set(el.pill, { opacity: 0, transform: 'translateY(14px)' });
+      // 3-1 → 3-2 → 3-5 → 3-6 → 3-3 : hexagon draws, brackets rotate in and lock, scan line sweeps down
+      set(el.hex, { opacity: 1 });
+      tw(el.hexMain, { strokeDashoffset: 0 }, 900, ES, 150);
+      tw(el.corners, { opacity: 1 }, 260, EO, 250);
+      tw(el.corners, { transform: 'rotate(0deg) scale(1)' }, 1500, 'cubic-bezier(.16,1,.3,1)', 300);
+      set(el.scan, { opacity: 0, transform: 'translateY(0)' });
+      tw(el.scan, { opacity: 1 }, 200, EO, 320);
+      await tw(el.scan, { transform: 'translateY(309px)' }, 1400, ES, 320);
+      if (!alive()) return;
+      stage.classList.add('scanning');
+      // hand over to the idle sweep without a jump: idle loop starts at the bottom position
+      set(el.scan, { transform: 'none', opacity: .9 }); stage.classList.add('scan-idle');
+      const loop = $('.scan-loop'); loop.style.animationDelay = '-2.8s';
+      await tw(el.pill, { opacity: 1, transform: 'none' }, 460, EO);
+      if (!alive()) return; el.pill.disabled = false;
+      break;
+    }
+    case 'cam': {
+      if (cur !== 'scan'){ show('scan'); RIG.ready(); set(el.pill, { opacity: 1, transform: 'none' }); tw(el.logo, { opacity: 1, transform: 'none' }, 200); }
+      camOn = true; show('scan');
+      el.pill.disabled = true;
+      setPill('<span>Posisikan wajah Anda</span>');
+      set(el.pillFill, { width: '0%' });
+      // buka kamera asli + muat model lokal (paralel)
+      try { await Promise.all([camera.start(), loadFaceModel()]); }
+      catch (err){
+        if (!alive() || err.aborted) return;
+        camera.stop(); camFail(err.message); return;
+      }
+      if (!alive()) return;
+      stage.classList.add('cam');
+      // scanning begins: hexagon makes one slow 60° turn, camera fades up behind the rig
+      tw(el.hex, { transform: 'translateY(0px) rotate(60deg) scale(1)' }, 1100, ES);
+      tw(el.camBg, { opacity: 1, transform: 'none' }, 700, EO);
+      tw(el.person, { opacity: 1, transform: 'none' }, 800, EO, 120);
+      // brackets mengikuti wajah asli (renderRig); status berjalan sesuai kondisi nyata
+      trk.reset(); trk.active = true; tracker.start();
+      const ok = () => alive() && !trk.lost();
+      for (;;){
+        // 1) Posisikan wajah: tunggu satu wajah di dalam hexagon, menghadap lurus, stabil 450 ms
+        await until(() => !alive() || trk.goodFor() >= 450);
+        if (!alive()) return;
+        // 2) Wajah terdeteksi
+        setPill('<span>Wajah terdeteksi</span>');
+        await holdWhile(550, ok); if (!alive()) return;
+        if (!ok()){ setPill('<span>Posisikan wajah Anda</span>'); continue; }
+        // 3) Memindai — berhenti & mundur kalau wajah hilang / keluar posisi
+        setPill('<span class="ell">Memindai</span>');
+        tw(el.pillFill, { width: '100%' }, 2600, 'linear');
+        // landmarks appear one by one
+        el.dots.forEach((d, i) => tw(d, { opacity: 1, transform: 'scale(1)' }, 420, 'cubic-bezier(.34,1.3,.64,1)', i * 130));
+        await holdWhile(8 * 130 + 250, ok);
+        if (ok()) await whileOk(tw(el.mesh, { strokeDashoffset: 0 }, 1150, ES), ok);
+        if (ok()) await holdWhile(200, ok);
+        if (!alive()) return;
+        if (!ok()){ abortScan(); setPill('<span>Posisikan wajah Anda</span>'); await holdWhile(400, alive); if (!alive()) return; continue; }
+        break;
+      }
+      // verified (deteksi selesai; pencocokan identitas masih simulasi)
+      stage.classList.add('locked');
+      el.hexMain.animate([{ filter: 'drop-shadow(0 0 0 rgba(92,188,184,0))' }, { filter: 'drop-shadow(0 0 14px rgba(92,188,184,1))' }, { filter: 'drop-shadow(0 0 0 rgba(92,188,184,0))' }], { duration: 900, easing: ES });
+      setPill('<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 10.5 8 14.5 16 6" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Wajah Terverifikasi</span>');
+      await sleep(850); if (!alive()) return;
+      go('auth', { chained: true });
+      break;
+    }
+    case 'auth': {
+      if (!opts.chained){ RIG.verified(); show('scan'); }
+      camOn = false;
+      el.steps.forEach(s => s.className = 'step');
+      // rig collapses into an authorization loader
+      stage.classList.remove('scan-idle', 'scanning');
+      tw(el.scan, { opacity: 0 }, 250);
+      tw(el.dots, { opacity: 0, transform: 'scale(.4)' }, 300, EO);
+      tw(el.mesh, { opacity: 0 }, 300);
+      tw(el.corners, { opacity: 0, transform: 'scale(1.12)' }, 450, EO);
+      tw(el.camBg, { opacity: 0, transform: 'scale(1.04)' }, 600, ES, 100);
+      tw(el.person, { opacity: 0, transform: 'translateY(10px) scale(.98)' }, 550, ES, 80);
+      show('auth');
+      stage.classList.remove('cam');
+      await tw(el.hex, { transform: 'translateY(-149px) rotate(60deg) scale(.5)' }, 750, ES, 120);
+      if (!alive()) return;
+      camera.stop();   // feed sudah memudar → matikan kamera
+      stage.classList.add('tracing');
+      const step = async (i, ms) => { el.steps[i].classList.add('on'); await sleep(ms); el.steps[i].classList.remove('on'); el.steps[i].classList.add('done'); };
+      el.steps[0].classList.add('done');
+      await sleep(300); if (!alive()) return;
+      await step(1, 950); if (!alive()) return;
+      await step(2, 900); if (!alive()) return;
+      await sleep(250); if (!alive()) return;
+      go('success', { chained: true });
+      break;
+    }
+    case 'success': {
+      if (!opts.chained){ RIG.off(); set(el.hex, { opacity: 1, transform: 'translateY(-149px) rotate(60deg) scale(.5)' }); el.hexMain.style.strokeDashoffset = 0; }
+      stage.classList.remove('tracing', 'locked');
+      // hexagon dissolves into the success disc, check draws, two ripples
+      tw(el.hex, { opacity: 0, transform: 'translateY(-149px) rotate(90deg) scale(.42)' }, 380, ES);
+      show('success');
+      await tw(el.ok, { opacity: 1, transform: 'scale(1)' }, 520, 'cubic-bezier(.34,1.25,.64,1)', 120);
+      if (!alive()) return;
+      tw(el.okCheck, { strokeDashoffset: 0 }, 420, EO);
+      el.rings.forEach((r, i) => { const a = r.animate([{ opacity: .45, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(2.1)' }], { duration: 1300, delay: 120 + i * 260, easing: EO }); live.add(a); });
+      const bar = $('#autoBar'); bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
+      autoT = setTimeout(() => { if (alive()) go('receipt'); }, reduce ? 6000 : 6400);
+      break;
+    }
+    case 'receipt': {
+      tw(el.ok, { opacity: 0, transform: 'scale(.85)' }, 320, EO);
+      if (!opts.keep) resetMail();
+      show('receipt');
+      break;
+    }
+  }
+}
+let autoT;
+
+/* ---- pill label crossfade ---- */
+function setPill(html, instant){
+  if (instant){ el.pillTxt.innerHTML = html; return; }
+  el.pillTxt.classList.add('swap');
+  setTimeout(() => { el.pillTxt.innerHTML = html; el.pillTxt.classList.remove('swap'); }, 140);
+}
+
+/* ---- ripples + press feedback on every .btn ---- */
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest('.btn'); if (!b) return;
+  const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2.2 / S;
+  const s = document.createElement('span'); s.className = 'ripple';
+  Object.assign(s.style, { width: d + 'px', height: d + 'px', left: ((e.clientX - r.left) / S - d / 2) + 'px', top: ((e.clientY - r.top) / S - d / 2) + 'px' });
+  b.appendChild(s); setTimeout(() => s.remove(), 650);
+});
+const pressThen = (btn, fn, ms = 190) => { btn.classList.add('press'); setTimeout(() => { btn.classList.remove('press'); fn(); }, ms); };
+
+/* ---- S1 ---- */
+function resetMethod(){ $$('.pay').forEach(p => p.classList.remove('sel')); $('#cardLogo').style.visibility = ''; }
+$('#payRupa').addEventListener('click', e => {
+  const p = e.currentTarget; if (p.classList.contains('sel')) return;
+  $('#payQris').classList.remove('sel'); p.classList.add('sel');
+  setTimeout(() => go('source', { flyFrom: $('#cardLogo') }), 320);
+});
+$('#payQris').addEventListener('click', e => {
+  $('#payRupa').classList.remove('sel'); e.currentTarget.classList.add('sel');
+  toast('Prototype ini mendemokan alur Biometrik Wajah (Rupa)');
+  setTimeout(() => e.currentTarget.classList.remove('sel'), 1600);
+});
+let toastT;
+function toast(msg){ el.toast.textContent = msg; el.toast.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.toast.classList.remove('show'), 2400); }
+
+/* ---- S2 / scan / success ---- */
+$('#btnNext').addEventListener('click', e => pressThen(e.currentTarget, () => go('scan')));
+el.pill.addEventListener('click', () => { if (!camOn) pressThen(el.pill, () => go('cam')); });
+$('#btnReceipt').addEventListener('click', e => pressThen(e.currentTarget, () => go('receipt')));
+el.back.addEventListener('click', () => { if (cur === 'source') go('method'); else if (cur === 'scan') go(camOn ? 'scan' : 'source'); });
+
+/* ---- receipt + email ---- */
+const form = $('#mailForm'), input = $('#email'), field = $('#field'), sendBtn = $('#btnSend'), sentPane = $('#sentPane');
+const valid = v => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v.trim());
+function resetMail(){
+  form.classList.remove('hide'); sentPane.classList.add('hide'); sentPane.classList.remove('go');
+  field.classList.remove('err'); input.value = ''; sendBtn.disabled = false; sendBtn.innerHTML = 'Kirimkan ke Email';
+}
+$$('.dchip').forEach(c => c.addEventListener('click', () => {
+  const local = input.value.split('@')[0].trim(); input.value = (local || 'nama') + c.textContent; field.classList.remove('err');
+  input.focus({ preventScroll: true }); if (!local) input.setSelectionRange(0, 4);
+}));
+input.addEventListener('input', () => field.classList.remove('err'));
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!valid(input.value)){
+    field.classList.remove('shake'); void field.offsetWidth; field.classList.add('err', 'shake'); input.focus({ preventScroll: true }); return;
+  }
+  const id = run;
+  sendBtn.disabled = true; sendBtn.classList.add('press');
+  setTimeout(() => sendBtn.classList.remove('press'), 160);
+  sendBtn.innerHTML = '<span class="spinner"></span><span>Mengirim struk…</span>';
+  await new Promise(r => setTimeout(r, 1600)); if (id !== run) return;
+  $('#sentTo').textContent = input.value.trim();
+  form.classList.add('hide'); sentPane.classList.remove('hide');
+  requestAnimationFrame(() => sentPane.classList.add('go'));
+});
+$('#btnAgain').addEventListener('click', () => { resetMail(); setTimeout(() => input.focus({ preventScroll: true }), 50); });
+$('#btnDone').addEventListener('click', async () => {
+  const id = ++run; el.outro.classList.add('show');
+  await new Promise(r => setTimeout(r, 2200)); if (id !== run) return;
+  newTxn(); go('method');
+  setTimeout(() => el.outro.classList.remove('show'), 120);
+});
+
+/* ---- prototype nav + keys ---- */
+$('#nav').addEventListener('click', e => {
+  const b = e.target.closest('[data-go]'); if (!b) return;
+  el.outro.classList.remove('show');
+  if (b.dataset.go === 'reset'){ newTxn(); go('method'); return; }
+  go(b.dataset.go);
+});
+const navSeq = ['method', 'source', 'scan', 'cam', 'auth', 'success', 'receipt'];
+addEventListener('keydown', e => {
+  if (e.target === input) return;
+  if (e.target === camSelect) return;
+  const i = navSeq.indexOf(camOn ? 'cam' : cur);
+  // dari layar kamera tidak bisa dilompati: lanjut hanya kalau wajah benar-benar terdeteksi
+  if (e.key === 'ArrowRight' && i < navSeq.length - 1 && navSeq[i] !== 'cam') go(navSeq[i + 1]);
+  if (e.key === 'm' || e.key === 'M') setMirror(!mirrored);
+  if (e.key === 'ArrowLeft' && i > 0) go(navSeq[i - 1]);
+  if (e.key === 'r' || e.key === 'R'){ newTxn(); go('method'); }
+});
+
+[stage, frame, document.querySelector('.viewport')].forEach(n => n.addEventListener('scroll', () => { n.scrollTop = 0; n.scrollLeft = 0; }));
+RIG.off(); go('method');
+// muat model wajah lokal di belakang layar supaya pemindaian langsung siap
+setTimeout(() => loadFaceModel().catch(() => {}), 600);
+addEventListener('pagehide', () => camera.stop());
+})();
+</script>
+</body>
+</html>
