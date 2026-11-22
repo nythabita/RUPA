@@ -164,21 +164,31 @@ btnOtp.addEventListener('click', async () => {
 /* ---------- mode uji tanpa kamera: ?uji=1 (landscape) · ?uji=hp (portrait) ---------- */
 const TEST = new URLSearchParams(location.search).get('uji');
 const testSource = TEST !== null ? createTestSource('assets/cam-person-dummy.webp', 'assets/cam-bg-dummy.webp', TEST === 'hp') : null;
-const portraitScreen = () => innerHeight > innerWidth;
-const camConstraints = () => portraitScreen()
-  ? { width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 30 } }
-  : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-// kotak "cover" video di dalam area kamera (dipakai untuk posisi video & pemetaan landmark)
-function coverRect(vw, vh, W, H) {
-  const s = Math.max(W / vw, H / vh), w = vw * s, h = vh * s;
-  return { x: (W - w) / 2, y: (H - h) / 2, w, h, s };
+/* Permintaan kamera.
+   - Browser SELALU membaca width/height dalam orientasi sensor (landscape) dan baru menukarnya saat
+     HP dipegang tegak (W3C mediacapture-main #760). Jadi angka landscape (1280×720 / 1920×1080) =
+     mode asli sensor → di HP tegak hasilnya tetap video TEGAK (720×1280) tanpa dipotong.
+     Dulu kami minta 720×1280 → dibaca "720 lebar × 1280 tinggi dari sensor landscape" → browser
+     (mis. Samsung S24) memotong strip tengah frame → wajah ter-zoom ±3× dan HP harus dijauhkan.
+   - Wajah (kamera depan) → hasil tegak; KTP (kamera belakang) → bingkai landscape dipotong dari frame.
+   - resizeMode 'none' = jangan potong/skala frame; pakai frame asli sensor (FOV penuh).
+     Browser yang tidak mengenal opsi ini akan mengabaikannya. */
+const camConstraints = hi => () => ({ width: { ideal: hi ? 1920 : 1280 }, height: { ideal: hi ? 1080 : 720 }, frameRate: { ideal: 30 }, resizeMode: { ideal: 'none' } });
+const MAX_ZOOM = 1.9;   // tampilan "cover" tidak boleh memperbesar lebih dari ini dibanding "muat penuh"
+// kotak tampil video di area kamera: cover, tapi zoom dibatasi; kalau dibatasi → pita, dipusatkan di focusY
+function fitRect(vw, vh, W, H, focusY = H / 2) {
+  const sCover = Math.max(W / vw, H / vh), sFit = Math.min(W / vw, H / vh);
+  const s = Math.min(sCover, sFit * MAX_ZOOM), w = vw * s, h = vh * s;
+  const y = h < H ? Math.min(Math.max(focusY - h / 2, 0), H - h) : (H - h) / 2;
+  return { x: (W - w) / 2, y, w, h, s, band: h < H - 1 || w < W - 1 };
 }
+const placeVideo = (v, r) => { Object.assign(v.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', objectFit: 'fill' }); v.classList.toggle('band', r.band); };
 
 /* ---------- 05 foto KTP (kamera belakang asli) ---------- */
 const ktpCamEl = $('#ktpCam'), ktpVid = $('#ktpVid'), ktpFrame = $('#ktpFrame'), ktpShot = $('#ktpShot');
 const ktpStatus = $('#ktpStatus'), btnShot = $('#btnKtpShot'), ktpErr = $('#ktpErr');
 const ktpCam = new Camera([ktpVid], { storageKey: 'rupa.app.ktpCameraId', facingMode: 'environment' });
-ktpCam.videoConstraints = camConstraints;
+ktpCam.videoConstraints = camConstraints(true);   // KTP: resolusi lebih tinggi supaya tulisan terbaca
 if (testSource) ktpCam.sourceFactory = testSource;
 let KF = null;   // geometri bingkai KTP (px, relatif area kamera)
 function layoutKtp() {
@@ -188,7 +198,12 @@ function layoutKtp() {
   KF = { x, y, w, h, W, H };
   for (const el of [ktpFrame, ktpShot]) Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
   ktpStatus.style.top = Math.min(y + h + 18, H - 44) + 'px';
+  placeKtpVideo();
 }
+// posisi video mengikuti ukuran frame yang benar-benar dikirim kamera (bisa berubah setelah frame pertama di iOS)
+function ktpRect() { const vw = ktpVid.videoWidth, vh = ktpVid.videoHeight; return vw && KF ? fitRect(vw, vh, KF.W, KF.H, KF.y + KF.h / 2) : null; }
+function placeKtpVideo() { const r = ktpRect(); if (r) placeVideo(ktpVid, r); }
+['loadedmetadata', 'resize'].forEach(ev => ktpVid.addEventListener(ev, placeKtpVideo));
 function ktpMode(m, msg) {   // 'loading' | 'live' | 'review' | 'error'
   btnShot.hidden = m === 'review'; $('#ktpReview').hidden = m !== 'review';
   $('#btnKtpSkip').hidden = m !== 'error'; ktpErr.hidden = m !== 'error'; $('#ktpTips').hidden = m === 'error';
@@ -210,9 +225,10 @@ leave.ktpfoto = () => { ktpCam.stop(); ktpVid.classList.remove('on'); };
 btnShot.addEventListener('click', () => {
   if (!ktpErr.hidden) { const id = runId; startKtp(() => id === runId); return; }
   const vw = ktpVid.videoWidth, vh = ktpVid.videoHeight; if (!vw || !KF) return;
-  // potong tepat area bingkai dari frame video (object-fit: cover)
-  const r = coverRect(vw, vh, KF.W, KF.H);
-  const sx = (KF.x - r.x) / r.s, sy = (KF.y - r.y) / r.s, sw = KF.w / r.s, sh = KF.h / r.s;
+  // potong tepat area bingkai dari frame video (posisi tampil = ktpRect), dibatasi di dalam frame
+  const r = ktpRect();
+  const sw = Math.min(KF.w / r.s, vw), sh = Math.min(KF.h / r.s, vh);
+  const sx = Math.min(Math.max((KF.x - r.x) / r.s, 0), vw - sw), sy = Math.min(Math.max((KF.y - r.y) / r.s, 0), vh - sh);
   const c = document.createElement('canvas'); c.width = Math.round(Math.min(sw, 1400)); c.height = Math.round(c.width / 1.586);
   c.getContext('2d').drawImage(ktpVid, sx, sy, sw, sh, 0, 0, c.width, c.height);
   c.toBlob(b => {
@@ -280,7 +296,7 @@ const scanSec = sec('pindai'), faceCamEl = $('#faceCam'), faceVid = $('#faceVid'
 const overlay = $('#faceOverlay'), faceLine = $('#faceLine'), faceStatus = $('#faceStatus'), btnPindai = $('#btnPindai'), faceErr = $('#faceErr');
 const scanBar = $('#scanBar'), scanHead = $('#scanHead'), scanChecks = $$('#scanChecks li');
 const faceCam = new Camera([faceVid], { storageKey: 'rupa.app.faceCameraId', facingMode: 'user' });
-faceCam.videoConstraints = camConstraints;
+faceCam.videoConstraints = camConstraints(false);
 if (testSource) faceCam.sourceFactory = testSource;
 let G = null, vidKey = '';
 // heksagon "pointy-top" dengan sudut membulat, rasio sama dengan desain (0,893)
@@ -313,13 +329,16 @@ function layoutFace() {
   dotsCv.width = W * dpr; dotsCv.height = H * dpr; dotsCv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   vidKey = '';
 }
-// penilaian posisi wajah relatif terhadap heksagon (ketat untuk mulai, longgar selama memindai)
-const TOL = { strict: { c: 0.2, cy: 0.18, min: 0.45, max: 1.05, yaw: 0.28 }, loose: { c: 0.32, cy: 0.28, min: 0.35, max: 1.2, yaw: 0.45 } };
-function judge(count, f, t) {
+/* Penilaian wajah (ketat untuk mulai, longgar selama memindai).
+   UKURAN dinilai dari frame kamera asli: lebar wajah ÷ sisi pendek frame — tidak terpengaruh zoom
+   tampilan maupun ukuran layar. Contoh kamera depan HP (16:9): ±30 cm ≈ 60%, ±40 cm ≈ 48%.
+   POSISI tetap dinilai terhadap heksagon di layar supaya arahan "ke tengah" sesuai yang dilihat. */
+const TOL = { strict: { c: 0.2, cy: 0.18, fmin: 0.28, fmax: 0.85, yaw: 0.28 }, loose: { c: 0.32, cy: 0.28, fmin: 0.22, fmax: 0.95, yaw: 0.45 } };
+function judge(count, f, t, frac) {
   if (count > 1) return 'multi';
   if (!f) return 'none';
-  if (f.box.w < G.hexW * t.min) return 'far';
-  if (f.box.w > G.hexW * t.max) return 'near';
+  if (frac < t.fmin) return 'far';
+  if (frac > t.fmax) return 'near';
   if (Math.abs(f.box.cx - G.cx) > G.hexW * t.c || Math.abs(f.box.cy - G.cy) > G.hexH * t.cy) return 'off';
   if (Math.abs(f.yaw) > t.yaw) return 'turn';
   return 'ok';
@@ -331,11 +350,14 @@ const SAY = {
 const scan = { mode: 'pindai', prog: 0, lostAt: 0, last: 0, finishing: false, ready: false };
 const tracker = new FaceTracker(faceVid, (faces, vw, vh) => {
   if (!G) return;
-  const rect = coverRect(vw, vh, G.W, G.H), key = [vw, vh, G.W, G.H].join();
-  if (key !== vidKey) { vidKey = key; Object.assign(faceVid.style, { left: rect.x + 'px', top: rect.y + 'px', width: rect.w + 'px', height: rect.h + 'px', objectFit: 'fill' }); }
+  // ukuran video dibaca ulang tiap frame (di iOS bisa berubah setelah frame pertama)
+  const rect = fitRect(vw, vh, G.W, G.H, G.cy), key = [vw, vh, G.W, G.H].join();
+  if (key !== vidKey) { vidKey = key; placeVideo(faceVid, rect); }
   const { count, face } = analyzeFaces(faces, makeMapper(rect, { x: 0, y: 0, w: G.W, h: G.H }, true));
-  const strict = judge(count, face, TOL.strict), loose = judge(count, face, TOL.loose);
+  const frac = face ? face.box.w / rect.s / Math.min(vw, vh) : 0;   // lebar wajah ÷ sisi pendek frame kamera
+  const strict = judge(count, face, TOL.strict, frac), loose = judge(count, face, TOL.loose, frac);
   const now = performance.now(), dt = scan.last ? Math.min(100, now - scan.last) : 16; scan.last = now;
+  if (dbgEl) debugInfo(now, vw, vh, rect, frac, strict);
   faceCamEl.classList.toggle('good', loose === 'ok');
   if (scan.mode === 'pindai') {
     faceStatus.textContent = SAY[strict] + (strict === 'ok' ? ' — siap dipindai' : '');
@@ -354,6 +376,22 @@ const tracker = new FaceTracker(faceVid, (faces, vw, vh) => {
   }
   drawDots(scan.mode === 'memindai' && loose === 'ok' ? face : null);
 });
+/* ?debug=1 → panel kecil: ukuran video asli, zoom tampilan, ukuran wajah (untuk dicek langsung di HP) */
+const dbgEl = new URLSearchParams(location.search).has('debug')
+  ? faceCamEl.appendChild(Object.assign(document.createElement('pre'), { className: 'dbg' })) : null;
+let dbgT = 0;
+function debugInfo(now, vw, vh, rect, frac, verdict) {
+  if (now - dbgT < 250) return; dbgT = now;
+  const st = faceCam.stream?.getVideoTracks()[0]?.getSettings?.() || {};
+  const fit = Math.min(G.W / vw, G.H / vh);
+  const track = `${st.width ?? '?'}×${st.height ?? '?'}` + (st.resizeMode ? ', ' + st.resizeMode : '') + (st.zoom ? ', zoom ' + st.zoom : '');
+  dbgEl.textContent = [
+    `video ${vw}×${vh}  (track ${track})`,
+    `area ${Math.round(G.W)}×${Math.round(G.H)}  zoom ${(rect.s / fit).toFixed(2)}×${rect.band ? ' (pita)' : ''}`,
+    `terlihat ${Math.round(Math.min(1, G.W / rect.w) * 100)}% lebar frame`,
+    `wajah ${frac ? Math.round(frac * 100) + '%' : '-'}  (ok ${Math.round(TOL.strict.fmin * 100)}–${Math.round(TOL.strict.fmax * 100)}%) → ${verdict}`
+  ].join('\n');
+}
 function drawDots(face) {
   const ctx = dotsCv.getContext('2d'); ctx.clearRect(0, 0, G.W, G.H);
   if (!face) return;

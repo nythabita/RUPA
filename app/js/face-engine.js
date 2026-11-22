@@ -93,6 +93,11 @@ export class Camera {
     const track = stream.getVideoTracks()[0];
     if (!track) { this.stop(); throw new Error(MSG.notFound); }
     track.addEventListener('ended', () => { if (this.stream === stream) { this.stop(); this.onEnded?.(); } });
+    // beberapa HP membuka kamera dalam keadaan ter-zoom digital → kembalikan ke zoom minimum (bidang pandang terlebar)
+    try {
+      const caps = track.getCapabilities?.(), st = track.getSettings?.();
+      if (caps?.zoom && st?.zoom > caps.zoom.min) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
+    } catch { /* kamera/browser tidak mendukung zoom → abaikan */ }
 
     await Promise.all(this.videos.map(async v => {
       v.srcObject = stream;
